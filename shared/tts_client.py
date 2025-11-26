@@ -17,8 +17,9 @@ class TTSClient:
         # Use Piper TTS - fast and lightweight
         logger.info("Loading Piper TTS...")
         
-        # Use high-quality voice model for natural speech
-        voice_name = "en_US-libritts-high"  # High quality, expressive voice
+        # Use ryan voice - clearest for phone (male voice)
+        # Alternative: lessac-medium (female), amy-medium (female)
+        voice_name = "en_US-ryan-medium"  # Clear male voice, best for phone quality
         model_path = os.path.join(os.path.expanduser("~"), ".local", "share", "piper", f"{voice_name}.onnx")
         
         if not os.path.exists(model_path):
@@ -27,8 +28,8 @@ class TTSClient:
             
             # Download from correct Hugging Face mirror
             import urllib.request
-            base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/libritts/high/{voice_name}.onnx"
-            config_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/libritts/high/{voice_name}.onnx.json"
+            base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/medium/{voice_name}.onnx"
+            config_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/medium/{voice_name}.onnx.json"
             
             logger.info("Downloading model files (this may take a moment)...")
             try:

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RelayX Dashboard - AI Outbound Caller</title>
+    <title>RelayX Dashboard - AI Voice Calling Platform</title>
     <style>
         * {
             margin: 0;
@@ -263,7 +263,7 @@
         <!-- Header -->
         <div class="header">
             <h1>🚀 RelayX Dashboard</h1>
-            <p>AI-Powered Outbound Caller Platform</p>
+            <p>AI Voice-Calling Platform | Test Emma, Your RelayX Information Agent</p>
         </div>
         
         <!-- Stats Grid -->
@@ -295,12 +295,6 @@
             </div>
             
             <div class="stat-card">
-                <h3>Fish Audio <span class="update-indicator" title="Auto-updating every 15s"></span></h3>
-                <div class="value" id="fishCredits">10,000</div>
-                <div class="label" id="fishLabel">Chars/month</div>
-            </div>
-            
-            <div class="stat-card">
                 <h3>Agents</h3>
                 <div class="value" id="totalAgents">0</div>
                 <div class="label">AI agents configured</div>
@@ -325,10 +319,14 @@
             <div class="form-group">
                 <label for="phoneNumber">Phone Number (E.164 format)</label>
                 <input type="tel" id="phoneNumber" placeholder="+1234567890" value="+1">
-                <div style="margin-top: 8px;">
-                    <button type="button" onclick="document.getElementById('phoneNumber').value='+917278082005'" 
+                <div style="margin-top: 8px; display: flex; gap: 8px;">
+                    <button type="button" onclick="document.getElementById('phoneNumber').value='+917276082005'" 
                             style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9em; color: #374151;">
                         📋 Use: +917276082005
+                    </button>
+                    <button type="button" onclick="document.getElementById('phoneNumber').value='+917666815841'" 
+                            style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9em; color: #374151;">
+                        📋 Use: +917666815841
                     </button>
                 </div>
             </div>
@@ -344,9 +342,12 @@
             
             <div id="callStatus"></div>
             
-            <div id="callLogs" style="display: none; margin-top: 20px; background: #f3f4f6; padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.85em;">
-                <h3 style="margin: 0 0 10px 0; color: #333;">📡 Live Call Logs</h3>
-                <div id="callLogContent"></div>
+            <div id="callLogs" style="margin-top: 20px; background: #1e293b; padding: 15px; border-radius: 8px; max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.75em; color: #e2e8f0;">
+                <h3 style="margin: 0 0 10px 0; color: #38bdf8; display: flex; justify-content: space-between; align-items: center;">
+                    <span>📡 Live Voice Gateway Logs</span>
+                    <span class="update-indicator" style="background: #10b981;" title="Auto-refreshing every 5s"></span>
+                </h3>
+                <div id="callLogContent" style="white-space: pre-wrap; line-height: 1.4;">Loading logs...</div>
             </div>
         </div>
         
@@ -363,8 +364,35 @@
         // Refresh stats every 10 seconds (reduce spam)
         setInterval(refreshStats, 10000);
         setInterval(refreshAPICredits, 15000); // Refresh API credits every 15 seconds
+        setInterval(refreshLogs, 5000); // Refresh logs every 5 seconds
         refreshStats();
         refreshAPICredits();
+        refreshLogs();
+        
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/logs');
+                const data = await response.json();
+                const logContent = document.getElementById('callLogContent');
+                if (data.logs) {
+                    // Filter for important logs only
+                    const lines = data.logs.split('\n');
+                    const filtered = lines.filter(line => 
+                        line.includes('INFO') || 
+                        line.includes('ERROR') || 
+                        line.includes('WARNING') ||
+                        line.includes('TwiML') ||
+                        line.includes('Gather') ||
+                        line.includes('base_url') ||
+                        line.includes('Speech')
+                    ).slice(-20).join('\n');
+                    logContent.textContent = filtered || 'No recent logs';
+                    logContent.scrollTop = logContent.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Error refreshing logs:', error);
+            }
+        }
         
         async function refreshAPICredits() {
             try {
@@ -386,25 +414,6 @@
                         groqElement.textContent = '8,000';
                         groqElement.style.color = '#667eea';
                         groqLabel.textContent = 'Renews daily';
-                    }
-                }
-                
-                // Update Fish Audio credits
-                if (credits.fish_audio) {
-                    const fishRemaining = credits.fish_audio.chars_remaining;
-                    const fishStatus = credits.fish_audio.status;
-                    const todayCalls = credits.fish_audio.today_calls || 0;
-                    const fishElement = document.getElementById('fishCredits');
-                    const fishLabel = document.getElementById('fishLabel');
-                    
-                    if (fishStatus === 'estimated' && typeof fishRemaining === 'number') {
-                        fishElement.textContent = fishRemaining.toLocaleString();
-                        fishElement.style.color = fishRemaining > 2000 ? '#667eea' : '#ef4444';
-                        fishLabel.textContent = `${todayCalls} calls today • Chars/month`;
-                    } else {
-                        fishElement.textContent = '10,000';
-                        fishElement.style.color = '#667eea';
-                        fishLabel.textContent = 'Chars/month';
                     }
                 }
                 

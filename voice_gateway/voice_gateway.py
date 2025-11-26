@@ -6,6 +6,7 @@ Real-time pipeline: Audio → STT → LLM → TTS → Audio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import base64
 import json
@@ -38,6 +39,15 @@ app = FastAPI(
     title="RelayX Voice Gateway",
     description="Twilio Media Stream handler for AI voice calls",
     version="1.0.0"
+)
+
+# Add CORS middleware to allow dashboard access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Audio settings for Twilio
@@ -164,18 +174,20 @@ async def twiml_handler(call_id: str, request: Request):
         await db.update_call(call_id, status="in-progress", started_at=datetime.now())
         logger.info(f"Call {call_id} status updated to in-progress")
         
-        # Use ngrok URL if available, otherwise fallback
+        # Use ngrok URL if available, otherwise fallback to env variable
         if ngrok_public_url:
             base_url = ngrok_public_url
         else:
-            base_url = os.getenv("VOICE_GATEWAY_WS_URL", "https://your-gateway-url.ngrok.io")
+            base_url = os.getenv("VOICE_GATEWAY_URL", "https://your-gateway-url.ngrok.io")
+        
+        logger.info(f"Using base_url for TwiML: {base_url}")
         
         # Generate initial greeting with Piper TTS
         tts = get_tts_client()
         greeting_text = "Hello! How can I help you today?"
         greeting_audio = tts.generate_speech(greeting_text)
         
-        if greeting_audio and ngrok_public_url:
+        if greeting_audio and base_url and not base_url.startswith("https://your-gateway"):
             # Copy to audio directory
             import uuid
             audio_filename = f"{call_id}_greeting_{uuid.uuid4().hex[:8]}.wav"
@@ -236,10 +248,10 @@ async def gather_callback(call_id: str, request: Request):
         
         if not speech_result:
             # No speech detected - give another chance
-            base_url = ngrok_public_url if ngrok_public_url else ""
+            base_url = os.getenv("VOICE_GATEWAY_URL", ngrok_public_url if ngrok_public_url else "")
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="6" speechTimeout="3" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US">
+    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US">
         <Say voice="Polly.Joanna">I didn't catch that. Could you please speak a bit louder and tell me what you need?</Say>
     </Gather>
     <Say voice="Polly.Joanna">I still couldn't hear you. Please call back when you're ready. Goodbye!</Say>
@@ -317,14 +329,14 @@ async def gather_callback(call_id: str, request: Request):
             pass
         
         # Use ngrok URL to serve Piper audio
-        if ngrok_public_url:
-            base_url = ngrok_public_url
+        base_url = os.getenv("VOICE_GATEWAY_URL", ngrok_public_url if ngrok_public_url else "")
+        if base_url and not base_url.startswith("https://your-gateway"):
             audio_url = f"{base_url}/audio/{audio_filename}"
             
             # Continue conversation with another Gather using Piper TTS audio
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="6" speechTimeout="3" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no, more, details">
+    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no, more, details, thanks, goodbye">
         <Play>{audio_url}</Play>
     </Gather>
     <Say voice="Polly.Joanna">Thank you for calling. Goodbye!</Say>

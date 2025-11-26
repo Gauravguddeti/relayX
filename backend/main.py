@@ -20,6 +20,7 @@ from shared.database import get_db, SupabaseDB
 from shared.llm_client import get_llm_client, LLMClient
 from twilio.rest import Client as TwilioClient
 from dotenv import load_dotenv
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -137,7 +138,7 @@ async def get_stats(db: SupabaseDB = Depends(get_db)):
 
 @app.get("/api-credits")
 async def get_api_credits(db: SupabaseDB = Depends(get_db)):
-    """Get real-time API credit usage from Groq and Fish Audio"""
+    """Get real-time API credit usage from Groq"""
     import httpx
     credits = {
         "groq": {
@@ -146,11 +147,6 @@ async def get_api_credits(db: SupabaseDB = Depends(get_db)):
             "requests_remaining": "?",
             "tokens_limit": 8000,
             "tokens_remaining": "?"
-        },
-        "fish_audio": {
-            "status": "unknown",
-            "chars_limit": 10000,
-            "chars_remaining": "?"
         }
     }
     
@@ -159,7 +155,6 @@ async def get_api_credits(db: SupabaseDB = Depends(get_db)):
         calls = await db.list_calls()
         today = datetime.now().strftime("%Y-%m-%d")
         today_calls = [c for c in calls if c.get("started_at") and str(c.get("started_at")).startswith(today)]
-        completed_calls = [c for c in today_calls if c.get("status") == "completed"]
         
         # Estimate Groq usage (tokens and requests)
         # Approximate: 500 tokens per call (STT + LLM combined)
@@ -172,26 +167,32 @@ async def get_api_credits(db: SupabaseDB = Depends(get_db)):
         credits["groq"]["requests_remaining"] = groq_requests_remaining
         credits["groq"]["today_calls"] = len(today_calls)
         
-        # Estimate Fish Audio usage
-        # Approximate: 200 characters per call (average TTS response)
-        estimated_chars_used = len(completed_calls) * 200
-        fish_chars_remaining = max(0, 10000 - estimated_chars_used)
-        
-        credits["fish_audio"]["status"] = "estimated"
-        credits["fish_audio"]["chars_remaining"] = fish_chars_remaining
-        credits["fish_audio"]["today_calls"] = len(completed_calls)
-        
-        logger.debug(f"API Credits - Groq: {groq_tokens_remaining} tokens, Fish: {fish_chars_remaining} chars")
+        logger.debug(f"API Credits - Groq: {groq_tokens_remaining} tokens")
         
     except Exception as e:
         logger.warning(f"Could not estimate API credits: {e}")
         credits["groq"]["status"] = "error"
-        credits["fish_audio"]["status"] = "error"
     
     return credits
 
 
 # ==================== HEALTH CHECK ====================
+
+@app.get("/logs")
+async def get_logs():
+    """Get recent voice gateway logs"""
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "relayx-voice-gateway", "--tail", "50"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        logs = result.stdout + result.stderr
+        return {"logs": logs, "timestamp": datetime.now().isoformat()}
+    except Exception as e:
+        return {"logs": f"Error fetching logs: {str(e)}", "timestamp": datetime.now().isoformat()}
+
 
 @app.get("/")
 async def root():
