@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Logs - RelayX</title>
+    <style>
+        :root {
+            --bg: #0a0e1a;
+            --surface: #1a1f35;
+            --frost: #e0f7ff;
+            --cyan: #00f0ff;
+            --slate: #8892a6;
+            --accent: rgba(0, 240, 255, 0.1);
+            --border: rgba(0, 240, 255, 0.2);
+            --signal-green: #00ff88;
+            --signal-red: #ff4466;
+            --signal-yellow: #ffcc00;
+            --mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--frost);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        header {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--cyan);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--frost);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn:hover {
+            background: var(--accent);
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        
+        .btn-primary {
+            background: var(--cyan);
+            color: var(--bg);
+            border-color: var(--cyan);
+        }
+        
+        .btn-primary:hover {
+            background: transparent;
+            color: var(--cyan);
+        }
+        
+        .logs-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        }
+        
+        .log-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+        }
+        
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .log-header h2 {
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--cyan);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-badge.online {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--signal-green);
+            border: 1px solid var(--signal-green);
+        }
+        
+        .status-badge.offline {
+            background: rgba(255, 68, 102, 0.1);
+            color: var(--signal-red);
+            border: 1px solid var(--signal-red);
+        }
+        
+        .log-content {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            border-radius: 6px;
+            padding: 16px;
+            overflow-y: auto;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--frost);
+        }
+        
+        .log-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .log-content::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        
+        .log-content::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        
+        .log-content::-webkit-scrollbar-thumb:hover {
+            background: var(--cyan);
+        }
+        
+        .log-line {
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .log-line.error {
+            color: var(--signal-red);
+        }
+        
+        .log-line.warning {
+            color: var(--signal-yellow);
+        }
+        
+        .log-line.info {
+            color: var(--signal-green);
+        }
+        
+        .log-line.debug {
+            color: var(--slate);
+        }
+        
+        .log-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--slate);
+        }
+        
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .auto-refresh input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        
+        .loading {
+            text-align: center;
+            color: var(--slate);
+            padding: 20px;
+        }
+        
+        .call-logs-section {
+            grid-column: 1 / -1;
+        }
+        
+        .call-logs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+        
+        .call-logs-table th,
+        .call-logs-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .call-logs-table th {
+            background: rgba(0, 240, 255, 0.05);
+            color: var(--cyan);
+            font-weight: 500;
+            font-size: 13px;
+        }
+        
+        .call-logs-table td {
+            font-size: 13px;
+            font-family: var(--mono);
+        }
+        
+        .call-logs-table tr:hover {
+            background: rgba(0, 240, 255, 0.03);
+        }
+        
+        .call-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            display: inline-block;
+        }
+        
+        .call-status.completed {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--signal-green);
+        }
+        
+        .call-status.in-progress {
+            background: rgba(0, 240, 255, 0.1);
+            color: var(--cyan);
+        }
+        
+        .call-status.failed {
+            background: rgba(255, 68, 102, 0.1);
+            color: var(--signal-red);
+        }
+        
+        @media (max-width: 1200px) {
+            .logs-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            overflow: auto;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            margin: 40px auto;
+            padding: 0;
+            max-width: 1000px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            color: var(--cyan);
+            font-size: 20px;
+        }
+
+        .modal-body {
+            padding: 20px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: var(--frost);
+            font-size: 28px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0 8px;
+        }
+
+        .close-btn:hover {
+            color: var(--cyan);
+        }
+
+        .details-section {
+            margin-bottom: 24px;
+        }
+
+        .details-section h3 {
+            color: var(--cyan);
+            font-size: 16px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .transcript-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .transcript-message {
+            margin-bottom: 16px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .transcript-message.user {
+            flex-direction: row;
+        }
+
+        .transcript-message.agent {
+            flex-direction: row-reverse;
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .transcript-message.user .message-bubble {
+            background: rgba(0, 120, 255, 0.2);
+            border: 1px solid rgba(0, 120, 255, 0.3);
+        }
+
+        .transcript-message.agent .message-bubble {
+            background: rgba(0, 240, 255, 0.2);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+        }
+
+        .message-meta {
+            font-size: 11px;
+            color: var(--slate);
+            margin-top: 4px;
+        }
+
+        .analysis-grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .analysis-item {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .analysis-item label {
+            display: block;
+            font-size: 12px;
+            color: var(--slate);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .analysis-item .value {
+            font-size: 14px;
+            color: var(--frost);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .badge.outcome-interested {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--signal-green);
+        }
+
+        .badge.outcome-not_interested {
+            background: rgba(255, 68, 102, 0.2);
+            color: var(--signal-red);
+        }
+
+        .badge.outcome-call_later {
+            background: rgba(255, 204, 0, 0.2);
+            color: var(--signal-yellow);
+        }
+
+        .badge.sentiment-positive, .badge.sentiment-very_positive {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--signal-green);
+        }
+
+        .badge.sentiment-negative, .badge.sentiment-very_negative {
+            background: rgba(255, 68, 102, 0.2);
+            color: var(--signal-red);
+        }
+
+        .badge.sentiment-neutral {
+            background: rgba(136, 146, 166, 0.2);
+            color: var(--slate);
+        }
+
+        .key-points-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .key-points-list li {
+            padding: 8px 0;
+            padding-left: 20px;
+            position: relative;
+            color: var(--frost);
+        }
+
+        .key-points-list li:before {
+            content: "▸";
+            position: absolute;
+            left: 0;
+            color: var(--cyan);
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: var(--slate);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <!-- Call Details Modal -->
+    <div id="callDetailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Call Details</h2>
+                <button class="close-btn" onclick="closeCallDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBodyContent">
+                <div class="loading">Loading call details...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>
+                <span>📊</span>
+                System Logs & Monitoring
+            </h1>
+            <div class="nav-buttons">
+                <button class="btn" onclick="refreshAll()">↻ Refresh All</button>
+                <a href="/static/dashboard.html" class="btn">← Back to Dashboard</a>
+            </div>
+        </header>
+        
+        <div class="logs-grid">
+            <!-- Backend Logs -->
+            <div class="log-card">
+                <div class="log-header">
+                    <h2>🔧 Backend Service</h2>
+                    <span class="status-badge online" id="backendStatus">Online</span>
+                </div>
+                <div class="log-content" id="backendLogs">
+                    <div class="loading">Loading backend logs...</div>
+                </div>
+                <div class="log-footer">
+                    <div class="auto-refresh">
+                        <input type="checkbox" id="autoRefreshBackend" checked>
+                        <label for="autoRefreshBackend">Auto-refresh (5s)</label>
+                    </div>
+                    <span id="backendTimestamp">--</span>
+                </div>
+            </div>
+            
+            <!-- Voice Gateway Logs -->
+            <div class="log-card">
+                <div class="log-header">
+                    <h2>🎙️ Voice Gateway</h2>
+                    <span class="status-badge online" id="voiceStatus">Online</span>
+                </div>
+                <div class="log-content" id="voiceLogs">
+                    <div class="loading">Loading voice gateway logs...</div>
+                </div>
+                <div class="log-footer">
+                    <div class="auto-refresh">
+                        <input type="checkbox" id="autoRefreshVoice" checked>
+                        <label for="autoRefreshVoice">Auto-refresh (5s)</label>
+                    </div>
+                    <span id="voiceTimestamp">--</span>
+                </div>
+            </div>
+            
+            <!-- Call Logs -->
+            <div class="log-card call-logs-section">
+                <div class="log-header">
+                    <h2>📞 Recent Calls (Last 20)</h2>
+                    <span id="callCount">0 calls</span>
+                </div>
+                <div class="log-content">
+                    <table class="call-logs-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Phone Number</th>
+                                <th>Agent</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Twilio SID</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="callLogsTable">
+                            <tr><td colspan="7" class="loading">Loading call logs...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="log-footer">
+                    <div class="auto-refresh">
+                        <input type="checkbox" id="autoRefreshCalls" checked>
+                        <label for="autoRefreshCalls">Auto-refresh (5s)</label>
+                    </div>
+                    <span id="callsTimestamp">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Format log lines with colors
+        function formatLogs(logText) {
+            const lines = logText.split('\n').filter(line => line.trim());
+            return lines.map(line => {
+                let className = '';
+                if (line.includes('ERROR') || line.includes('error')) {
+                    className = 'error';
+                } else if (line.includes('WARNING') || line.includes('warning')) {
+                    className = 'warning';
+                } else if (line.includes('INFO') || line.includes('info')) {
+                    className = 'info';
+                } else if (line.includes('DEBUG') || line.includes('debug')) {
+                    className = 'debug';
+                }
+                return `<div class="log-line ${className}">${escapeHtml(line)}</div>`;
+            }).join('');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '--';
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString();
+        }
+        
+        function formatDuration(seconds) {
+            if (!seconds) return '--';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}m ${secs}s`;
+        }
+        
+        // Fetch backend logs
+        async function fetchBackendLogs() {
+            try {
+                const response = await fetch('/api/logs/backend');
+                const data = await response.json();
+                
+                const logsDiv = document.getElementById('backendLogs');
+                logsDiv.innerHTML = formatLogs(data.logs);
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+                
+                document.getElementById('backendTimestamp').textContent = formatTimestamp(data.timestamp);
+                document.getElementById('backendStatus').textContent = 'Online';
+                document.getElementById('backendStatus').className = 'status-badge online';
+            } catch (error) {
+                document.getElementById('backendLogs').innerHTML = `<div class="log-line error">Error: ${error.message}</div>`;
+                document.getElementById('backendStatus').textContent = 'Error';
+                document.getElementById('backendStatus').className = 'status-badge offline';
+            }
+        }
+        
+        // Fetch voice gateway logs
+        async function fetchVoiceLogs() {
+            try {
+                const response = await fetch('/api/logs/voice-gateway');
+                const data = await response.json();
+                
+                const logsDiv = document.getElementById('voiceLogs');
+                logsDiv.innerHTML = formatLogs(data.logs);
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+                
+                document.getElementById('voiceTimestamp').textContent = formatTimestamp(data.timestamp);
+                document.getElementById('voiceStatus').textContent = 'Online';
+                document.getElementById('voiceStatus').className = 'status-badge online';
+            } catch (error) {
+                document.getElementById('voiceLogs').innerHTML = `<div class="log-line error">Error: ${error.message}</div>`;
+                document.getElementById('voiceStatus').textContent = 'Error';
+                document.getElementById('voiceStatus').className = 'status-badge offline';
+            }
+        }
+        
+        // Fetch call logs
+        async function fetchCallLogs() {
+            try {
+                const response = await fetch('/calls?limit=20');
+                const calls = await response.json();
+                
+                const tbody = document.getElementById('callLogsTable');
+                
+                if (calls.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="loading">No calls yet</td></tr>';
+                    document.getElementById('callCount').textContent = '0 calls';
+                    return;
+                }
+                
+                tbody.innerHTML = calls.map(call => {
+                    const time = new Date(call.created_at).toLocaleString();
+                    const statusClass = call.status === 'completed' ? 'completed' : 
+                                      call.status === 'in-progress' ? 'in-progress' : 'failed';
+                    
+                    return `
+                        <tr>
+                            <td>${time}</td>
+                            <td>${call.phone_number || '--'}</td>
+                            <td>${call.agent_name || 'Unknown'}</td>
+                            <td><span class="call-status ${statusClass}">${call.status}</span></td>
+                            <td>${formatDuration(call.duration)}</td>
+                            <td>${call.twilio_call_sid ? call.twilio_call_sid.substring(0, 20) + '...' : '--'}</td>
+                            <td><button class="btn" style="padding: 4px 12px; font-size: 12px;" onclick="viewCallDetails('${call.id}')">View Details</button></td>
+                        </tr>
+                    `;
+                }).join('');
+                
+                document.getElementById('callCount').textContent = `${calls.length} calls`;
+                document.getElementById('callsTimestamp').textContent = formatTimestamp(new Date().toISOString());
+            } catch (error) {
+                document.getElementById('callLogsTable').innerHTML = 
+                    `<tr><td colspan="7" class="log-line error">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        // View call details modal
+        async function viewCallDetails(callId) {
+            const modal = document.getElementById('callDetailsModal');
+            const modalBody = document.getElementById('modalBodyContent');
+            
+            modal.style.display = 'block';
+            modalBody.innerHTML = '<div class="loading">Loading call details...</div>';
+            
+            try {
+                // Fetch transcripts, analysis, and recording in parallel
+                const [transcriptsRes, analysisRes, recordingRes] = await Promise.all([
+                    fetch(`/calls/${callId}/transcripts`),
+                    fetch(`/calls/${callId}/analysis`),
+                    fetch(`/calls/${callId}/recording`)
+                ]);
+                
+                const transcripts = await transcriptsRes.json();
+                const analysis = await analysisRes.json();
+                const recording = await recordingRes.json();
+                
+                // Build modal content
+                let content = '';
+                
+                // Recording Section
+                if (recording && recording.has_recording) {
+                    const streamUrl = `/calls/${callId}/recording/stream`;
+                    content += `
+                        <div class="details-section">
+                            <h3>🎙️ Call Recording</h3>
+                            <div class="analysis-item">
+                                <audio controls style="width: 100%; max-width: 600px;">
+                                    <source src="${streamUrl}" type="audio/mpeg">
+                                    Your browser does not support the audio element.
+                                </audio>
+                                ${recording.recording_duration ? `
+                                    <div class="message-meta" style="margin-top: 8px;">
+                                        Duration: ${Math.floor(recording.recording_duration / 60)}:${String(recording.recording_duration % 60).padStart(2, '0')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Call Analysis Section
+                if (analysis && analysis.summary) {
+                    const outcomeClass = `outcome-${analysis.outcome || 'other'}`;
+                    const sentimentClass = `sentiment-${analysis.user_sentiment || 'neutral'}`;
+                    
+                    content += `
+                        <div class="details-section">
+                            <h3>📊 Call Analysis</h3>
+                            <div class="analysis-grid">
+                                <div class="analysis-item">
+                                    <label>Summary</label>
+                                    <div class="value">${analysis.summary}</div>
+                                </div>
+                                
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                    <div class="analysis-item">
+                                        <label>Outcome</label>
+                                        <div class="value">
+                                            <span class="badge ${outcomeClass}">
+                                                ${(analysis.outcome || 'unknown').replace('_', ' ').toUpperCase()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="analysis-item">
+                                        <label>Sentiment</label>
+                                        <div class="value">
+                                            <span class="badge ${sentimentClass}">
+                                                ${(analysis.user_sentiment || 'unknown').replace('_', ' ').toUpperCase()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                ${analysis.key_points && analysis.key_points.length > 0 ? `
+                                    <div class="analysis-item">
+                                        <label>Key Points</label>
+                                        <ul class="key-points-list">
+                                            ${analysis.key_points.map(point => `<li>${point}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                ${analysis.next_action ? `
+                                    <div class="analysis-item">
+                                        <label>Recommended Next Action</label>
+                                        <div class="value">${analysis.next_action}</div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    content += `
+                        <div class="details-section">
+                            <h3>📊 Call Analysis</h3>
+                            <div class="no-data">Analysis not yet available or call still in progress</div>
+                        </div>
+                    `;
+                }
+                
+                // Transcript Section
+                if (transcripts && transcripts.length > 0) {
+                    content += `
+                        <div class="details-section">
+                            <h3>💬 Conversation Transcript</h3>
+                            <div class="transcript-container">
+                                ${transcripts.map(msg => {
+                                    const speakerClass = msg.speaker.toLowerCase();
+                                    const time = new Date(msg.timestamp).toLocaleTimeString();
+                                    return `
+                                        <div class="transcript-message ${speakerClass}">
+                                            <div class="message-bubble">
+                                                <div>${msg.text}</div>
+                                                <div class="message-meta">
+                                                    ${msg.speaker} • ${time}
+                                                    ${msg.confidence_score ? ` • ${Math.round(msg.confidence_score * 100)}% confidence` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    content += `
+                        <div class="details-section">
+                            <h3>💬 Conversation Transcript</h3>
+                            <div class="no-data">No transcript available</div>
+                        </div>
+                    `;
+                }
+                
+                modalBody.innerHTML = content;
+                
+            } catch (error) {
+                modalBody.innerHTML = `<div class="no-data" style="color: var(--signal-red);">Error loading call details: ${error.message}</div>`;
+            }
+        }
+
+        function closeCallDetailsModal() {
+            document.getElementById('callDetailsModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('callDetailsModal');
+            if (event.target === modal) {
+                closeCallDetailsModal();
+            }
+        }
+        
+        // Refresh all logs
+        function refreshAll() {
+            fetchBackendLogs();
+            fetchVoiceLogs();
+            fetchCallLogs();
+        }
+        
+        // Auto-refresh setup
+        let backendInterval, voiceInterval, callsInterval;
+        
+        function setupAutoRefresh() {
+            // Backend
+            document.getElementById('autoRefreshBackend').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    backendInterval = setInterval(fetchBackendLogs, 5000);
+                } else {
+                    clearInterval(backendInterval);
+                }
+            });
+            
+            // Voice Gateway
+            document.getElementById('autoRefreshVoice').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    voiceInterval = setInterval(fetchVoiceLogs, 5000);
+                } else {
+                    clearInterval(voiceInterval);
+                }
+            });
+            
+            // Calls
+            document.getElementById('autoRefreshCalls').addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    callsInterval = setInterval(fetchCallLogs, 5000);
+                } else {
+                    clearInterval(callsInterval);
+                }
+            });
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshAll();
+            setupAutoRefresh();
+            
+            // Start auto-refresh
+            backendInterval = setInterval(fetchBackendLogs, 5000);
+            voiceInterval = setInterval(fetchVoiceLogs, 5000);
+            callsInterval = setInterval(fetchCallLogs, 5000);
+        });
+    </script>
+</body>
+</html>

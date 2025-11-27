@@ -205,17 +205,17 @@ async def twiml_handler(call_id: str, request: Request):
             # Generate TwiML with Gather using Piper audio
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="6" speechTimeout="3" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
+    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
         <Play>{audio_url}</Play>
     </Gather>
-    <Say voice="Polly.Joanna">I didn't hear anything. Goodbye!</Say>
+    <Say voice="Polly.Joanna">I didn't hear anything. Let me transfer you to a human assistant. Goodbye!</Say>
     <Hangup/>
 </Response>"""
         else:
             # Fallback to Polly voice
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="6" speechTimeout="3" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
+    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
         <Say voice="Polly.Joanna">Hello! How can I help you today?</Say>
     </Gather>
     <Say voice="Polly.Joanna">I didn't hear anything. Goodbye!</Say>
@@ -288,19 +288,61 @@ async def gather_callback(call_id: str, request: Request):
         # Add current user message
         messages = conversation_history + [{"role": "user", "content": speech_result}]
         
-        # Get LLM response
-        system_prompt = agent.get("system_prompt", "You are Emma, a helpful AI assistant.")
+        # Get LLM response with safety prefix and guardrails
+        INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
+You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
+Never share private information. Stay professional and helpful.
+
+GUARDRAILS - STAY ON TOPIC:
+- You are a business assistant with a specific purpose defined in your system prompt
+- DO NOT answer general knowledge questions (geography, history, trivia, celebrities, etc.)
+- DO NOT engage with random topics unrelated to your business purpose
+- If asked off-topic questions, politely redirect: "I'm here to help with [your business purpose]. How can I assist you with that?"
+- If user is clearly not interested or being disruptive, politely end the call
+- Stay focused on your goal and don't get sidetracked
+
+TIME FORMATTING FOR VOICE:
+- NEVER write times as digits like "12:00" or "1:00" - the TTS will say "zero zero"
+- ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
+- Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
+- For half hours: "two thirty" not "2:30"
+- For quarter hours: "three fifteen" or "quarter past three" not "3:15"""
+        
+        base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are Emma, a helpful AI assistant.")
+        
+        # Search knowledge base for relevant context
+        knowledge_context = ""
+        try:
+            agent_id = call.get("agent_id")
+            relevant_knowledge = await db.search_knowledge(agent_id, speech_result, limit=2)
+            if relevant_knowledge:
+                knowledge_context = "\n\nRELEVANT INFORMATION FROM KNOWLEDGE BASE:\n"
+                for kb in relevant_knowledge:
+                    knowledge_context += f"- {kb['title']}: {kb['content'][:300]}...\n"
+                knowledge_context += "\nUse this information to answer the user's question if relevant.\n"
+                logger.info(f"Found {len(relevant_knowledge)} relevant knowledge entries")
+        except Exception as kb_error:
+            logger.warning(f"Knowledge base search failed: {kb_error}")
+        
+        system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}{knowledge_context}"
         temperature = agent.get("temperature", 0.7)
         max_tokens = agent.get("max_tokens", 150)
         
-        ai_response = await llm.generate_response(
-            messages=messages,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        logger.info(f"AI response: {ai_response}")
+        try:
+            ai_response = await llm.generate_response(
+                messages=messages,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            logger.info(f"AI response: {ai_response}")
+        except Exception as llm_error:
+            logger.error(f"⚠️  GROQ API FAILURE (not system issue): {llm_error}")
+            # Return error TwiML indicating Groq is down
+            return Response(
+                content="<Response><Say voice='Polly.Joanna'>I'm having trouble connecting to my AI service. This is a Groq API issue, not a system problem. Please try again in a moment.</Say><Hangup/></Response>",
+                media_type="application/xml"
+            )
         
         # Save AI transcript
         await db.add_transcript(
@@ -360,6 +402,116 @@ async def gather_callback(call_id: str, request: Request):
         )
 
 
+async def generate_call_analysis(call_id: str, db):
+    """Generate AI-powered call analysis summary"""
+    try:
+        # Get transcripts
+        transcripts = await db.get_transcripts(call_id)
+        
+        if not transcripts or len(transcripts) < 2:
+            logger.info(f"Not enough transcript data for analysis: {call_id}")
+            return
+        
+        # Build conversation text
+        conversation_text = "\n".join([
+            f"{t['speaker'].upper()}: {t['text']}" 
+            for t in transcripts
+        ])
+        
+        # Use LLM to analyze the call
+        llm = get_llm_client()
+        
+        analysis_prompt = f"""Analyze this phone call conversation. Read the ENTIRE conversation carefully and provide accurate analysis.
+
+CONVERSATION:
+{conversation_text}
+
+ANALYSIS INSTRUCTIONS:
+
+1. SUMMARY: Write 2-3 sentences describing what happened in the call
+
+2. KEY POINTS: List 2-4 main topics or important details discussed
+
+3. USER SENTIMENT: This is CRITICAL - analyze the user's actual emotional state throughout the conversation.
+   
+   Look for these indicators:
+   - POSITIVE: Words like "great", "perfect", "excellent", "love it", "sounds good", "thank you", enthusiasm, eagerness
+   - NEGATIVE: Words like "frustrated", "confused", "problem", "issue", "disappointed", "not happy", complaints, resistance
+   - NEUTRAL: Purely factual responses, business-like tone, no emotional indicators either way
+   
+   Pay attention to:
+   - How they started vs how they ended (did sentiment improve or worsen?)
+   - Their willingness to engage (eager questions vs reluctant answers?)
+   - Their word choices (positive/negative language)
+   - Overall tone (friendly vs cold, cooperative vs resistant)
+   
+   DO NOT default to neutral - only choose neutral if there are truly no emotional indicators.
+   
+   Choose the sentiment that BEST matches the conversation:
+   - very_positive: User is enthusiastic, excited, multiple positive words, highly engaged
+   - positive: User is friendly, cooperative, satisfied, helpful
+   - neutral: User is purely factual/business-like with NO emotional indicators either way
+   - negative: User shows frustration, annoyance, dissatisfaction, or reluctance
+   - very_negative: User is angry, hostile, very upset, or openly hostile
+
+4. OUTCOME: Based on the conversation result:
+   - interested: User wants to proceed/book/buy
+   - not_interested: User declined or not interested
+   - call_later: User wants to be contacted later
+   - needs_more_info: User needs more information before deciding
+   - wrong_number: Wrong person or misunderstanding
+   - other: Doesn't fit above categories
+
+5. NEXT ACTION: Specific recommended follow-up step
+
+Return ONLY valid JSON (no other text):
+{{
+  "summary": "",
+  "key_points": [],
+  "user_sentiment": "",
+  "outcome": "",
+  "next_action": ""
+}}"""
+        
+        messages = [{"role": "user", "content": analysis_prompt}]
+        response = await llm.generate_response(
+            messages=messages,
+            system_prompt="You are a call analysis assistant. Analyze conversations and provide structured insights.",
+            temperature=0.3,
+            max_tokens=300
+        )
+        
+        # Parse JSON response
+        import json
+        try:
+            analysis_data = json.loads(response)
+        except:
+            # Fallback if LLM doesn't return valid JSON
+            logger.warning(f"Failed to parse LLM analysis as JSON for {call_id}")
+            analysis_data = {
+                "summary": response[:200],
+                "key_points": ["Analysis failed to parse"],
+                "user_sentiment": "neutral",
+                "outcome": "other",
+                "next_action": "Review transcript manually"
+            }
+        
+        # Save analysis
+        await db.save_call_analysis(
+            call_id=call_id,
+            summary=analysis_data.get("summary", ""),
+            key_points=analysis_data.get("key_points", []),
+            user_sentiment=analysis_data.get("user_sentiment", "neutral"),
+            outcome=analysis_data.get("outcome", "other"),
+            next_action=analysis_data.get("next_action", "")
+        )
+        
+        logger.info(f"✅ Call analysis saved for {call_id}: {analysis_data.get('outcome')}")
+        
+    except Exception as e:
+        logger.error(f"Error generating call analysis for {call_id}: {e}")
+
+
 @app.post("/callbacks/status/{call_id}")
 async def status_callback(call_id: str, request: Request):
     """
@@ -377,10 +529,18 @@ async def status_callback(call_id: str, request: Request):
         db = get_db()
         update_data = {"status": status}
         
-        if status == "completed":
+        # Handle terminal states (call is done)
+        if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
             update_data["ended_at"] = datetime.now()
             if duration:
                 update_data["duration"] = int(duration)
+            
+            # Only generate analysis for completed calls with conversation
+            if status == "completed":
+                try:
+                    await generate_call_analysis(call_id, db)
+                except Exception as analysis_error:
+                    logger.error(f"Failed to generate call analysis for {call_id}: {analysis_error}")
         
         await db.update_call(call_id, **update_data)
         
@@ -388,6 +548,42 @@ async def status_callback(call_id: str, request: Request):
         
     except Exception as e:
         logger.error(f"Error in status callback for {call_id}: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/callbacks/recording/{call_id}")
+async def recording_callback(call_id: str, request: Request):
+    """
+    Handle Twilio recording callbacks
+    Saves recording URL to database
+    """
+    try:
+        form_data = await request.form()
+        recording_url = form_data.get("RecordingUrl")
+        recording_sid = form_data.get("RecordingSid")
+        recording_duration = form_data.get("RecordingDuration")
+        
+        logger.info(f"Recording callback for {call_id}: {recording_sid} | Duration: {recording_duration}s")
+        
+        if recording_url:
+            db = get_db()
+            # Twilio recording URL needs .mp3 appended for direct download
+            full_recording_url = f"{recording_url}.mp3"
+            
+            update_data = {
+                "recording_url": full_recording_url,
+            }
+            
+            if recording_duration:
+                update_data["recording_duration"] = int(recording_duration)
+            
+            await db.update_call(call_id, **update_data)
+            logger.info(f"✅ Recording URL saved for {call_id}: {full_recording_url}")
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(f"Error in recording callback for {call_id}: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -577,19 +773,52 @@ async def process_user_speech(
         # Add current user message
         messages = conversation_history + [{"role": "user", "content": user_text}]
         
-        # Get LLM response
-        system_prompt = session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
+        # Get LLM response with safety prefix and guardrails
+        INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
+You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
+Never share private information. Stay professional and helpful.
+
+GUARDRAILS - STAY ON TOPIC:
+- You are a business assistant with a specific purpose defined in your system prompt
+- DO NOT answer general knowledge questions (geography, history, trivia, celebrities, pop culture, etc.)
+- DO NOT engage with random topics unrelated to your business purpose
+- If asked off-topic questions, politely redirect: "I'm here to help with [your business purpose]. How can I assist you with that?"
+- If user is clearly not interested or being disruptive, politely end the call
+- Stay focused on your goal and don't get sidetracked
+
+TIME FORMATTING FOR VOICE:
+- NEVER write times as digits like "12:00" or "1:00" - the TTS will say "zero zero"
+- ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
+- Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
+- For half hours: "two thirty" not "2:30"
+- For quarter hours: "three fifteen" or "quarter past three" not "3:15"
+
+CALL ENDING PROTOCOL:
+- When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"
+- After saying goodbye, the user will disconnect - DO NOT continue talking
+- If user says goodbye/bye/I have to go, acknowledge and end: "Thank you, goodbye!"
+- Do not keep the call going unnecessarily - respect the user's time"""
+        
+        base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
+        system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}"
         temperature = session.agent_config.get("temperature", 0.7)
         max_tokens = session.agent_config.get("max_tokens", 150)
         
-        ai_response = await llm.generate_response(
-            messages=messages,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        logger.info(f"AI response: {ai_response}")
+        try:
+            ai_response = await llm.generate_response(
+                messages=messages,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            logger.info(f"AI response: {ai_response}")
+        except Exception as llm_error:
+            logger.error(f"⚠️  GROQ API FAILURE (not system issue): {llm_error}")
+            # Send error message to caller
+            error_message = "I'm having trouble connecting to my AI service right now. This is a Groq API issue. Please try again in a moment."
+            await send_ai_response(websocket, session.stream_sid, error_message, tts, db, session.call_id)
+            session.is_speaking = False
+            return
         
         # Save AI response to database
         await db.add_transcript(
