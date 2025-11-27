@@ -25,6 +25,7 @@ services:
       - ./backend:/app
       - ./shared:/app/shared
       - ./db:/app/db
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     networks:
       - relayx-network

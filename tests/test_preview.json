@@ -1,0 +1,6 @@
+{
+  "prompt_text": "You are a helpful assistant",
+  "sample_user_input": "Hello, how are you?",
+  "temperature": 0.7,
+  "max_tokens": 100
+}

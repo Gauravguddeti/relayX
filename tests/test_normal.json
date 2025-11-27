@@ -1,0 +1,6 @@
+{
+  "system_prompt": "You are a helpful sales agent",
+  "user_message": "What are your business hours?",
+  "temperature": 0.7,
+  "max_tokens": 150
+}

@@ -1,0 +1,28 @@
+RelayX Product Information
+
+Features:
+- AI-powered voice calling with natural conversations
+- Automatic call transcription and analysis
+- Sentiment detection and outcome tracking
+- Call recordings with playback
+- Knowledge base for accurate responses
+- Custom AI agents with different personalities
+- Real-time conversation monitoring
+
+Pricing:
+- Basic Plan: $99/month - 100 calls included
+- Pro Plan: $299/month - Unlimited calls with priority support
+- Enterprise Plan: Custom pricing - Dedicated account manager and custom integrations
+
+Support:
+- Email support: support@relayx.ai
+- Phone: +1-800-RELAY-AI
+- Available Monday-Friday 9 AM to 6 PM ET
+- Enterprise customers get 24/7 support
+
+Technical Details:
+- Powered by Groq LLM (Llama 3.1)
+- Uses Whisper for speech-to-text
+- Piper TTS for natural voice synthesis
+- Twilio integration for reliable calling
+- PostgreSQL database with Supabase

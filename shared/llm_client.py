@@ -64,15 +64,20 @@ class LLMClient:
             if self.use_cloud:
                 # Use Groq API
                 logger.debug(f"Sending to Groq: {len(messages)} messages")
-                chat_completion = await self.client.chat.completions.create(
-                    messages=full_messages,  # type: ignore
-                    model=self.model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                assistant_message = chat_completion.choices[0].message.content or ""
-                logger.info(f"Groq Response: {assistant_message[:100]}...")
-                return assistant_message.strip()
+                try:
+                    chat_completion = await self.client.chat.completions.create(
+                        messages=full_messages,  # type: ignore
+                        model=self.model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                    assistant_message = chat_completion.choices[0].message.content or ""
+                    logger.info(f"Groq Response: {assistant_message[:100]}...")
+                    return assistant_message.strip()
+                except Exception as e:
+                    logger.error(f"🔴 GROQ API ERROR (External Service): {type(e).__name__} - {e}")
+                    logger.error("This is NOT a system issue. Groq API is down or rate-limited.")
+                    raise Exception(f"GROQ_API_FAILURE: {e}") from e
             else:
                 # Use local Ollama
                 payload = {
