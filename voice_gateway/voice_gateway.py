@@ -196,32 +196,45 @@ async def twiml_handler(call_id: str, request: Request):
             # For outbound calls: AI initiates with a pitch/intro based on the agent's purpose
             base_prompt = agent.get("resolved_system_prompt") or agent.get("prompt_text") or agent.get("system_prompt", "")
             
-            opening_prompt = f"""Based on your role and purpose, generate a SHORT opening line for an OUTBOUND phone call.
+            # Extract identity from prompt (look for "YOUR IDENTITY: You are X" pattern)
+            identity_hint = ""
+            import re
+            identity_match = re.search(r'YOUR IDENTITY:\s*(.+?)(?:\n|$)', base_prompt, re.IGNORECASE)
+            if identity_match:
+                identity_text = identity_match.group(1).strip()
+                identity_hint = f"CRITICAL: {identity_text}"
+                logger.info(f"Extracted identity: {identity_text}")
+            else:
+                # Fallback: look for "You are X" in first few lines
+                lines = base_prompt.split('\n')[:10]
+                for line in lines:
+                    if line.strip().lower().startswith('you are'):
+                        identity_hint = f"CRITICAL: {line.strip()}"
+                        logger.info(f"Extracted identity from 'You are': {line.strip()}")
+                        break
+            
+            opening_prompt = f"""Generate a SHORT opening line for an OUTBOUND phone call.
 
-YOUR ROLE/PURPOSE:
-{base_prompt[:500]}
+{identity_hint}
 
-REQUIREMENTS:
-- This is an OUTBOUND call where YOU are calling the person
-- Introduce yourself briefly (1 sentence max)
-- Be polite and ask if they have a moment
-- Keep it under 20 words total
-- Sound natural and friendly, not robotic
-- DO NOT ask "how can I help you" - YOU are the one reaching out
+STRICT REQUIREMENTS:
+- Use EXACTLY the identity stated above - word for word
+- This is an OUTBOUND call - YOU are calling THEM
+- Just say hi with your name and ask if they have a moment
+- Keep it under 15 words total
+- DO NOT mention what you're calling about yet
+- Sound natural and friendly
 
-GOOD EXAMPLES:
-- "Hi, this is Emma from ABC Dental. Hope you're doing well! Do you have a quick minute?"
-- "Hello! I'm calling from XYZ Insurance about your recent inquiry. Is now a good time?"
-- "Hi there! This is Alex with customer support following up on your account. Got a moment?"
+Example format: "Hi, this is [NAME] from [COMPANY]. Got 30 seconds?"
 
-Return ONLY the opening line, nothing else."""
+Return ONLY the opening line."""
 
             try:
                 greeting_text = await llm.generate_response(
                     messages=[{"role": "user", "content": opening_prompt}],
-                    system_prompt="You generate natural phone call opening lines. Be brief and friendly.",
+                    system_prompt="Generate phone call opening lines using EXACTLY the identity provided. Do not add extra details.",
                     temperature=0.7,
-                    max_tokens=50
+                    max_tokens=35
                 )
                 # Clean up any quotes or extra formatting
                 greeting_text = greeting_text.strip().strip('"').strip("'")
