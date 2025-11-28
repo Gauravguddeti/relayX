@@ -534,6 +534,7 @@ async def get_agent(agent_id: str, db: SupabaseDB = Depends(get_db)):
 
 
 @app.patch("/agents/{agent_id}", response_model=dict)
+@app.put("/agents/{agent_id}", response_model=dict)
 async def update_agent(agent_id: str, updates: AgentUpdate, db: SupabaseDB = Depends(get_db)):
     """Update agent prompt and configuration"""
     try:
@@ -592,11 +593,12 @@ async def create_outbound_call(
         if not twilio_client:
             raise HTTPException(status_code=500, detail="Twilio not configured")
         
-        # Create call record
+        # Create call record with explicit direction
         call_record = await db.create_call(
             agent_id=call_request.agent_id,
             to_number=call_request.to_number,
             from_number=TWILIO_PHONE_NUMBER,
+            direction="outbound",
             metadata=call_request.metadata
         )
         

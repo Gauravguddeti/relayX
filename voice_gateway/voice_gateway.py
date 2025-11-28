@@ -144,11 +144,12 @@ async def serve_audio(filename: str):
 @app.get("/info")
 async def get_info():
     """Get gateway info including ngrok URL"""
+    effective_url = os.getenv("VOICE_GATEWAY_URL") or ngrok_public_url or "not configured"
     return {
         "service": "RelayX Voice Gateway",
         "status": "running",
         "active_calls": len(active_sessions),
-        "ngrok_url": ngrok_public_url,
+        "ngrok_url": effective_url,
         "port": int(os.getenv("VOICE_GATEWAY_PORT", 8001))
     }
 
@@ -174,17 +175,64 @@ async def twiml_handler(call_id: str, request: Request):
         await db.update_call(call_id, status="in-progress", started_at=datetime.now())
         logger.info(f"Call {call_id} status updated to in-progress")
         
-        # Use ngrok URL if available, otherwise fallback to env variable
-        if ngrok_public_url:
-            base_url = ngrok_public_url
-        else:
-            base_url = os.getenv("VOICE_GATEWAY_URL", "https://your-gateway-url.ngrok.io")
+        # Get agent to generate appropriate opening
+        agent = await db.get_agent(call["agent_id"])
+        
+        # Use VOICE_GATEWAY_URL env var first (set externally), then ngrok auto-detection
+        base_url = os.getenv("VOICE_GATEWAY_URL") or ngrok_public_url or "https://your-gateway-url.ngrok.io"
         
         logger.info(f"Using base_url for TwiML: {base_url}")
         
-        # Generate initial greeting with Piper TTS
+        # Generate opening line using LLM based on agent's system prompt
+        # This allows outbound calls to pitch properly instead of generic "how can I help"
         tts = get_tts_client()
-        greeting_text = "Hello! How can I help you today?"
+        llm = get_llm_client()
+        
+        # Determine call direction and generate appropriate opening
+        direction = call.get("direction", "outbound")
+        logger.info(f"Call {call_id} direction: {direction}")
+        
+        if direction == "outbound" and agent:
+            # For outbound calls: AI initiates with a pitch/intro based on the agent's purpose
+            base_prompt = agent.get("resolved_system_prompt") or agent.get("prompt_text") or agent.get("system_prompt", "")
+            
+            opening_prompt = f"""Based on your role and purpose, generate a SHORT opening line for an OUTBOUND phone call.
+
+YOUR ROLE/PURPOSE:
+{base_prompt[:500]}
+
+REQUIREMENTS:
+- This is an OUTBOUND call where YOU are calling the person
+- Introduce yourself briefly (1 sentence max)
+- Be polite and ask if they have a moment
+- Keep it under 20 words total
+- Sound natural and friendly, not robotic
+- DO NOT ask "how can I help you" - YOU are the one reaching out
+
+GOOD EXAMPLES:
+- "Hi, this is Emma from ABC Dental. Hope you're doing well! Do you have a quick minute?"
+- "Hello! I'm calling from XYZ Insurance about your recent inquiry. Is now a good time?"
+- "Hi there! This is Alex with customer support following up on your account. Got a moment?"
+
+Return ONLY the opening line, nothing else."""
+
+            try:
+                greeting_text = await llm.generate_response(
+                    messages=[{"role": "user", "content": opening_prompt}],
+                    system_prompt="You generate natural phone call opening lines. Be brief and friendly.",
+                    temperature=0.7,
+                    max_tokens=50
+                )
+                # Clean up any quotes or extra formatting
+                greeting_text = greeting_text.strip().strip('"').strip("'")
+                logger.info(f"Generated outbound opening: {greeting_text}")
+            except Exception as e:
+                logger.warning(f"Failed to generate opening, using fallback: {e}")
+                greeting_text = "Hi there! This is your AI assistant calling. Do you have a moment to chat?"
+        else:
+            # For inbound calls: Standard greeting asking how to help
+            greeting_text = "Hello! Thanks for calling. How can I help you today?"
+        
         greeting_audio = tts.generate_speech(greeting_text)
         
         if greeting_audio and base_url and not base_url.startswith("https://your-gateway"):
@@ -212,11 +260,11 @@ async def twiml_handler(call_id: str, request: Request):
     <Hangup/>
 </Response>"""
         else:
-            # Fallback to Polly voice
+            # Fallback to Polly voice with dynamic greeting
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
-        <Say voice="Polly.Joanna">Hello! How can I help you today?</Say>
+        <Say voice="Polly.Joanna">{greeting_text}</Say>
     </Gather>
     <Say voice="Polly.Joanna">I didn't hear anything. Goodbye!</Say>
     <Hangup/>
@@ -306,7 +354,12 @@ TIME FORMATTING FOR VOICE:
 - ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
 - Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
 - For half hours: "two thirty" not "2:30"
-- For quarter hours: "three fifteen" or "quarter past three" not "3:15"""
+- For quarter hours: "three fifteen" or "quarter past three" not "3:15"
+
+CALL ENDING PROTOCOL:
+- When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"
+- If user says goodbye/bye/I have to go, acknowledge and end: "Thank you, goodbye!"
+- Do not keep the call going unnecessarily - respect the user's time"""
         
         base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are Emma, a helpful AI assistant.")
         
@@ -777,6 +830,15 @@ async def process_user_speech(
         INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
 You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
 Never share private information. Stay professional and helpful.
+
+OUTBOUND CALL BEHAVIOR:
+- This is an OUTBOUND call - YOU called THEM, not the other way around
+- You already introduced yourself and asked if they have a moment
+- If they say "yes", "sure", "go ahead" - proceed with your pitch/purpose
+- If they say "no", "busy", "not now" - politely offer to call back: "No problem! When would be a better time to reach you?"
+- If they ask "who is this?" or "what's this about?" - briefly reintroduce and explain your purpose
+- Be respectful of their time - get to the point quickly
+- Don't keep asking "how can I help you" - YOU are calling with a specific purpose
 
 GUARDRAILS - STAY ON TOPIC:
 - You are a business assistant with a specific purpose defined in your system prompt

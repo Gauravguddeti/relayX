@@ -455,12 +455,12 @@ class SupabaseDB:
     async def search_knowledge(self, agent_id: str, query: str, limit: int = 3) -> List[Dict[str, Any]]:
         """Search knowledge base using full-text search"""
         try:
-            # Use PostgreSQL full-text search with proper chaining
+            # Use PostgreSQL full-text search (without config param for SDK compatibility)
             result = self.client.table("knowledge_base")\
                 .select("*")\
                 .eq("agent_id", agent_id)\
                 .eq("is_active", True)\
-                .text_search("content", query, config="english")\
+                .text_search("content", query)\
                 .limit(limit)\
                 .execute()
             
