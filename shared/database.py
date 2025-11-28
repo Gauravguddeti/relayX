@@ -420,8 +420,8 @@ class SupabaseDB:
     # ==================== KNOWLEDGE BASE ====================
     
     async def add_knowledge(self, agent_id: str, title: str, content: str, 
-                           source_file: str = None, file_type: str = None, 
-                           metadata: dict = None) -> Dict[str, Any]:
+                           source_file: str = None, source_url: str = None,
+                           file_type: str = None, metadata: dict = None) -> Dict[str, Any]:
         """Add knowledge base entry for an agent"""
         try:
             data = {
@@ -429,12 +429,15 @@ class SupabaseDB:
                 "title": title,
                 "content": content,
                 "source_file": source_file,
+                "source_url": source_url,
                 "file_type": file_type,
                 "metadata": metadata or {},
                 "is_active": True
             }
             result = self.client.table("knowledge_base").insert(data).execute()
-            logger.info(f"Added knowledge entry: {title} for agent {agent_id}")
+            
+            source_info = source_url or source_file or "manual entry"
+            logger.info(f"Added knowledge entry: {title} from {source_info} for agent {agent_id}")
             return result.data[0]
         except Exception as e:
             logger.error(f"Error adding knowledge: {e}")

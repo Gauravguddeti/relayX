@@ -945,6 +945,7 @@
                 
                 <div style="display: flex; gap: 8px;">
                     <button class="btn" onclick="openAddKnowledgeModal()">+ Add Knowledge</button>
+                    <button class="btn" onclick="openAddURLModal()">🌐 Add from URL</button>
                     <button class="btn" onclick="openUploadFileModal()">📁 Upload File</button>
                 </div>
             </div>
@@ -1007,6 +1008,65 @@ Example: Our pricing plans are..."></textarea>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="closeUploadFileModal()">Cancel</button>
                     <button class="btn btn-primary" onclick="uploadFile()" id="uploadBtn">Upload</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add from URL Modal -->
+        <div class="modal" id="urlModal">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h2>🌐 Add Knowledge from URL</h2>
+                    <span class="close" onclick="closeURLModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="kbURL">Website URL</label>
+                        <input type="url" id="kbURL" placeholder="https://example.com/about" 
+                               style="font-family: 'Courier New', monospace;">
+                        <div style="font-size: 12px; color: var(--slate); margin-top: 8px;">
+                            💡 We'll scrape and extract clean text content from this webpage
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <button class="btn btn-secondary" onclick="previewURL()" id="previewBtn" style="flex: 1;">
+                            👁️ Preview Content
+                        </button>
+                    </div>
+                    
+                    <!-- Preview Area -->
+                    <div id="urlPreview" style="display: none; margin-top: 16px; padding: 16px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px;">
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Title</div>
+                            <div id="previewTitle" style="color: var(--cyan); font-size: 14px; font-weight: 600;"></div>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Domain</div>
+                            <div id="previewDomain" style="color: var(--aurora); font-size: 13px;"></div>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Content Preview</div>
+                            <div id="previewContent" style="color: var(--frost); font-size: 13px; line-height: 1.6; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <div style="display: flex; gap: 16px; font-size: 12px; color: var(--slate);">
+                            <div>📊 <span id="previewWordCount"></span> words</div>
+                            <div>📄 <span id="previewLength"></span> characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="customTitleGroup" style="display: none; margin-top: 16px;">
+                        <label for="kbCustomTitle">Custom Title (optional)</label>
+                        <input type="text" id="kbCustomTitle" placeholder="Leave blank to use webpage title">
+                    </div>
+                    
+                    <div id="urlStatus" style="margin-top: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeURLModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="addFromURL()" id="addURLBtn" style="display: none;">
+                        ✅ Add to Knowledge Base
+                    </button>
                 </div>
             </div>
         </div>
@@ -1554,19 +1614,47 @@ Example: Our pricing plans are..."></textarea>
                     return;
                 }
                 
-                list.innerHTML = knowledge.map(kb => `
+                list.innerHTML = knowledge.map(kb => {
+                    // Determine source icon and text
+                    let sourceIcon = '📝';
+                    let sourceText = 'Manual entry';
+                    
+                    if (kb.source_url) {
+                        sourceIcon = '🌐';
+                        try {
+                            const domain = new URL(kb.source_url).hostname.replace('www.', '');
+                            sourceText = domain;
+                        } catch {
+                            sourceText = 'Web URL';
+                        }
+                    } else if (kb.source_file) {
+                        sourceIcon = '📁';
+                        sourceText = kb.source_file;
+                    }
+                    
+                    const wordCount = kb.metadata?.word_count || kb.content.split(/\s+/).length;
+                    
+                    return `
                     <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: start;">
                             <div style="flex: 1;">
-                                <strong style="color: var(--cyan); font-size: 14px;">${kb.title}</strong>
-                                <p style="font-size: 12px; color: var(--slate); margin: 8px 0 0 0; line-height: 1.5;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                    <strong style="color: var(--cyan); font-size: 14px;">${kb.title}</strong>
+                                    <span style="font-size: 11px; color: var(--slate); background: rgba(0, 0, 0, 0.4); padding: 2px 8px; border-radius: 10px;">
+                                        ${sourceIcon} ${sourceText}
+                                    </span>
+                                </div>
+                                <p style="font-size: 12px; color: var(--frost); margin: 0 0 8px 0; line-height: 1.5;">
                                     ${kb.content.substring(0, 150)}${kb.content.length > 150 ? '...' : ''}
                                 </p>
+                                <div style="font-size: 11px; color: var(--slate);">
+                                    📊 ${wordCount.toLocaleString()} words
+                                </div>
                             </div>
                             <button class="btn" style="padding: 4px 12px; font-size: 12px; margin-left: 12px;" onclick="deleteKnowledge('${kb.id}')">🗑️</button>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
                 
             } catch (error) {
                 console.error('Error loading knowledge:', error);
@@ -1655,6 +1743,125 @@ Example: Our pricing plans are..."></textarea>
                 statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
             } finally {
                 uploadBtn.disabled = false;
+            }
+        }
+        
+        // URL Scraping Functions
+        function openAddURLModal() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            if (!agentId) {
+                alert('Please select an agent first');
+                return;
+            }
+            const modal = document.getElementById('urlModal');
+            modal.style.display = 'flex';
+        }
+        
+        function closeURLModal() {
+            document.getElementById('urlModal').style.display = 'none';
+            document.getElementById('kbURL').value = '';
+            document.getElementById('kbCustomTitle').value = '';
+            document.getElementById('urlPreview').style.display = 'none';
+            document.getElementById('customTitleGroup').style.display = 'none';
+            document.getElementById('addURLBtn').style.display = 'none';
+            document.getElementById('urlStatus').innerHTML = '';
+        }
+        
+        async function previewURL() {
+            const url = document.getElementById('kbURL').value.trim();
+            const previewBtn = document.getElementById('previewBtn');
+            const statusDiv = document.getElementById('urlStatus');
+            const previewDiv = document.getElementById('urlPreview');
+            const addBtn = document.getElementById('addURLBtn');
+            const customTitleGroup = document.getElementById('customTitleGroup');
+            
+            if (!url) {
+                alert('Please enter a URL');
+                return;
+            }
+            
+            // Validate URL format
+            try {
+                new URL(url);
+            } catch (e) {
+                alert('Please enter a valid URL (must start with http:// or https://)');
+                return;
+            }
+            
+            // Disable button and show progress
+            previewBtn.disabled = true;
+            statusDiv.innerHTML = '<p style="color: var(--cyan); font-size: 13px;">🔍 Scraping webpage...</p>';
+            previewDiv.style.display = 'none';
+            addBtn.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/knowledge/preview-url?url=${encodeURIComponent(url)}`);
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    // Show preview
+                    document.getElementById('previewTitle').textContent = data.title;
+                    document.getElementById('previewDomain').textContent = data.domain;
+                    document.getElementById('previewContent').textContent = data.content_preview;
+                    document.getElementById('previewWordCount').textContent = data.word_count.toLocaleString();
+                    document.getElementById('previewLength').textContent = data.content_length.toLocaleString();
+                    
+                    previewDiv.style.display = 'block';
+                    customTitleGroup.style.display = 'block';
+                    addBtn.style.display = 'block';
+                    
+                    statusDiv.innerHTML = '<p style="color: var(--signal-green); font-size: 13px;">✓ Content scraped successfully!</p>';
+                } else {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${data.detail || 'Failed to scrape URL'}</p>`;
+                }
+            } catch (error) {
+                console.error('Error previewing URL:', error);
+                statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
+            } finally {
+                previewBtn.disabled = false;
+            }
+        }
+        
+        async function addFromURL() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            const url = document.getElementById('kbURL').value.trim();
+            const customTitle = document.getElementById('kbCustomTitle').value.trim();
+            const addBtn = document.getElementById('addURLBtn');
+            const statusDiv = document.getElementById('urlStatus');
+            
+            // Disable button and show progress
+            addBtn.disabled = true;
+            statusDiv.innerHTML = '<p style="color: var(--cyan); font-size: 13px;">💾 Adding to knowledge base...</p>';
+            
+            try {
+                const response = await fetch('/api/knowledge/from-url', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        url: url,
+                        custom_title: customTitle || null
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-green); font-size: 13px;">✓ Added ${data.scraped_data.word_count} words from ${data.scraped_data.domain}!</p>`;
+                    setTimeout(() => {
+                        closeURLModal();
+                        loadKnowledge();
+                    }, 1500);
+                } else {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${data.detail || 'Failed to add knowledge'}</p>`;
+                    addBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error adding from URL:', error);
+                statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
+                addBtn.disabled = false;
             }
         }
         

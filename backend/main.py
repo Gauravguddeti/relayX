@@ -261,13 +261,14 @@ async def get_api_credits(db: SupabaseDB = Depends(get_db)):
 async def get_logs():
     """Get recent voice gateway logs (legacy endpoint)"""
     try:
-        result = subprocess.run(
-            ["docker", "logs", "relayx-voice-gateway", "--tail", "50"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        logs = result.stdout + result.stderr
+        log_file = "logs/voice_gateway.log"
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                # Read last 50 lines
+                lines = f.readlines()
+                logs = ''.join(lines[-50:])
+        else:
+            logs = "Voice gateway log file not found"
         return {"logs": logs, "timestamp": datetime.now().isoformat()}
     except Exception as e:
         return {"logs": f"Error fetching logs: {str(e)}", "timestamp": datetime.now().isoformat()}
@@ -277,13 +278,20 @@ async def get_logs():
 async def get_backend_logs():
     """Get recent backend logs"""
     try:
-        result = subprocess.run(
-            ["docker", "logs", "relayx-backend", "--tail", "100"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        logs = result.stdout + result.stderr
+        # Try multiple possible log locations
+        log_paths = ["logs/backend.log", "../logs/backend.log", "backend/logs/backend.log"]
+        logs = ""
+        
+        for log_file in log_paths:
+            if os.path.exists(log_file):
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    logs = ''.join(lines[-100:])
+                break
+        
+        if not logs:
+            logs = "Backend log file not found. Checked: " + ", ".join(log_paths)
+            
         return {"logs": logs, "timestamp": datetime.now(timezone.utc).isoformat()}
     except Exception as e:
         logger.error(f"Error fetching backend logs: {e}")
@@ -294,13 +302,25 @@ async def get_backend_logs():
 async def get_voice_gateway_logs():
     """Get recent voice gateway logs"""
     try:
-        result = subprocess.run(
-            ["docker", "logs", "relayx-voice-gateway", "--tail", "100"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        logs = result.stdout + result.stderr
+        # Try multiple possible log locations
+        log_paths = [
+            "logs/voice_gateway.log",
+            "../logs/voice_gateway.log",
+            "voice_gateway/logs/voice_gateway.log",
+            "../voice_gateway/logs/voice_gateway.log"
+        ]
+        logs = ""
+        
+        for log_file in log_paths:
+            if os.path.exists(log_file):
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    logs = ''.join(lines[-100:])
+                break
+        
+        if not logs:
+            logs = "Voice gateway log file not found. Checked: " + ", ".join(log_paths)
+            
         return {"logs": logs, "timestamp": datetime.now(timezone.utc).isoformat()}
     except Exception as e:
         logger.error(f"Error fetching voice gateway logs: {e}")
@@ -969,8 +989,15 @@ class KnowledgeCreate(BaseModel):
     title: str
     content: str
     source_file: Optional[str] = None
+    source_url: Optional[str] = None  # New: URL source
     file_type: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
+
+
+class KnowledgeFromURL(BaseModel):
+    agent_id: str
+    url: str
+    custom_title: Optional[str] = None  # Optional custom title override
 
 
 @app.get("/api/agents/{agent_id}/knowledge")
@@ -996,12 +1023,116 @@ async def add_knowledge(
             title=knowledge.title,
             content=knowledge.content,
             source_file=knowledge.source_file,
+            source_url=knowledge.source_url,
             file_type=knowledge.file_type,
             metadata=knowledge.metadata
         )
         return result
     except Exception as e:
         logger.error(f"Error adding knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/knowledge/from-url")
+async def add_knowledge_from_url(
+    data: KnowledgeFromURL,
+    db: SupabaseDB = Depends(get_db)
+):
+    """
+    Scrape URL and add to knowledge base
+    
+    This endpoint:
+    1. Scrapes the provided URL
+    2. Extracts clean text content
+    3. Adds it to the agent's knowledge base
+    """
+    try:
+        from shared.url_scraper import scrape_url_for_knowledge
+        
+        logger.info(f"Scraping URL for agent {data.agent_id}: {data.url}")
+        
+        # Scrape the URL
+        success, title, content, metadata = await scrape_url_for_knowledge(data.url)
+        
+        if not success:
+            error_msg = metadata.get("error", "Failed to scrape URL")
+            raise HTTPException(status_code=400, detail=f"Scraping failed: {error_msg}")
+        
+        # Use custom title if provided
+        final_title = data.custom_title or title
+        
+        # Add URL to metadata
+        metadata["scraped_url"] = data.url
+        
+        # Add to knowledge base
+        result = await db.add_knowledge(
+            agent_id=data.agent_id,
+            title=final_title,
+            content=content,
+            source_url=data.url,
+            file_type="url",
+            metadata=metadata
+        )
+        
+        logger.info(f"✅ Added knowledge from URL: {data.url} ({metadata.get('word_count', 0)} words)")
+        
+        return {
+            "success": True,
+            "knowledge": result,
+            "scraped_data": {
+                "url": data.url,
+                "title": title,
+                "word_count": metadata.get("word_count", 0),
+                "domain": metadata.get("domain", "")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error scraping URL {data.url}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/preview-url")
+async def preview_url(url: str):
+    """
+    Preview URL content before adding to knowledge base
+    Returns: title, content preview, word count, domain
+    """
+    logger.info(f"Preview URL request: {url}")
+    try:
+        from shared.url_scraper import scrape_url_for_knowledge
+        
+        logger.info(f"Starting scrape for: {url}")
+        success, title, content, metadata = await scrape_url_for_knowledge(url)
+        
+        logger.info(f"Scrape result - Success: {success}, Error: {metadata.get('error', 'None')}")
+        
+        if not success:
+            error_msg = metadata.get("error", "Failed to scrape URL")
+            logger.error(f"Scrape failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Return preview (first 500 chars)
+        content_preview = content[:500] + "..." if len(content) > 500 else content
+        
+        logger.info(f"Preview success - Title: {title}, Words: {metadata.get('word_count', 0)}")
+        
+        return {
+            "success": True,
+            "url": url,
+            "title": title,
+            "content_preview": content_preview,
+            "word_count": metadata.get("word_count", 0),
+            "domain": metadata.get("domain", ""),
+            "content_length": metadata.get("content_length", 0)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing URL {url}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
