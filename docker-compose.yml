@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -25,6 +23,7 @@ services:
       - ./backend:/app
       - ./shared:/app/shared
       - ./db:/app/db
+      - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     networks:
@@ -55,6 +54,7 @@ services:
     volumes:
       - ./voice_gateway:/app
       - ./shared:/app/shared
+      - ./logs:/app/logs
     depends_on:
       - backend
     restart: unless-stopped

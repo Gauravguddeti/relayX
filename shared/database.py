@@ -455,47 +455,37 @@ class SupabaseDB:
             logger.error(f"Error fetching knowledge: {e}")
             return []
     
-    async def search_knowledge(self, agent_id: str, query: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """Search knowledge base using full-text search"""
+    async def has_knowledge(self, agent_id: str) -> bool:
+        """Quick check if agent has any KB entries (for optimization)"""
         try:
-            # Use PostgreSQL full-text search (without config param for SDK compatibility)
             result = self.client.table("knowledge_base")\
-                .select("*")\
+                .select("id")\
                 .eq("agent_id", agent_id)\
                 .eq("is_active", True)\
-                .text_search("content", query)\
-                .limit(limit)\
+                .limit(1)\
                 .execute()
-            
-            if result.data:
-                return result.data
-            
-            # If no results from text search, try ILIKE fallback
-            logger.info(f"No text search results, trying keyword match for: {query}")
+            return len(result.data) > 0
+        except Exception as e:
+            logger.error(f"KB check failed: {e}")
+            return False
+    
+    async def search_knowledge(self, agent_id: str, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Search knowledge base using keyword matching"""
+        try:
+            # Use simple ILIKE search - more reliable than PostgreSQL text_search
+            # text_search has too many edge cases with query syntax
             result = self.client.table("knowledge_base")\
                 .select("*")\
                 .eq("agent_id", agent_id)\
                 .eq("is_active", True)\
                 .ilike("content", f"%{query}%")\
-                .limit(limit)\
                 .execute()
-            return result.data
+            
+            return result.data[:limit] if result.data else []
             
         except Exception as e:
-            logger.warning(f"Search failed, using fallback: {e}")
-            # Fallback: simple keyword match
-            try:
-                result = self.client.table("knowledge_base")\
-                    .select("*")\
-                    .eq("agent_id", agent_id)\
-                    .eq("is_active", True)\
-                    .ilike("content", f"%{query}%")\
-                    .limit(limit)\
-                    .execute()
-                return result.data
-            except Exception as e2:
-                logger.error(f"Fallback search also failed: {e2}")
-                return []
+            logger.error(f"Knowledge search failed: {e}")
+            return []
     
     async def delete_knowledge(self, knowledge_id: str) -> bool:
         """Delete a knowledge entry"""

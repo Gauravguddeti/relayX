@@ -87,7 +87,7 @@ class TTSClient:
             # Generate speech with Piper - use clean synthesis
             audio_chunks = []
             try:
-                # Synthesize with default settings for best quality
+                # Synthesize audio (Piper doesn't support length_scale in this version)
                 for audio_chunk in self.voice.synthesize(enhanced_text):
                     audio_chunks.append(audio_chunk)
             except Exception as e:
@@ -176,9 +176,7 @@ class TTSClient:
         """Clean and prepare text for natural speech - keep it simple"""
         import re
         
-        # Just clean up the text, don't add artificial pauses
-        # Piper handles natural pausing internally
-        
+        # Clean up text for more natural speech
         # Remove multiple spaces
         text = re.sub(r'\s+', ' ', text)
         
@@ -188,6 +186,13 @@ class TTSClient:
         
         # Remove any markdown or special formatting
         text = text.replace('*', '').replace('_', '').replace('#', '')
+        
+        # Add subtle pauses for more natural phrasing
+        # Replace dashes with commas for better pacing
+        text = text.replace(' - ', ', ')
+        
+        # Add micro-pauses after conjunctions for natural flow
+        text = re.sub(r'\b(and|but|or|so)\b(?!,)', r'\1,', text)
         
         return text.strip()
 

@@ -4,8 +4,7 @@ Handles Twilio Media Streams via WebSocket
 Real-time pipeline: Audio → STT → LLM → TTS → Audio
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import Response, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import base64
@@ -15,9 +14,7 @@ import os
 from loguru import logger
 from datetime import datetime
 import audioop
-from io import BytesIO
 import tempfile
-import shutil
 
 # Add shared modules to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -57,10 +54,6 @@ TWILIO_AUDIO_FORMAT = "mulaw"  # μ-law encoding
 # Call sessions storage
 active_sessions = {}
 
-# Audio file storage for TTS playback
-AUDIO_DIR = tempfile.mkdtemp(prefix="relayx_audio_")
-logger.info(f"Audio directory: {AUDIO_DIR}")
-
 
 class CallSession:
     """Manages state for an active call"""
@@ -90,7 +83,7 @@ class CallSession:
         self.audio_buffer.clear()
         return data
     
-    def has_sufficient_audio(self, min_duration_ms: int = 2000) -> bool:
+    def has_sufficient_audio(self, min_duration_ms: int = 1000) -> bool:
         """Check if buffer has enough audio (approx)"""
         # Rough estimate: mulaw is 1 byte per sample at 8kHz
         # So 1 second = 8000 bytes
@@ -132,15 +125,6 @@ async def root():
     }
 
 
-@app.get("/audio/{filename}")
-async def serve_audio(filename: str):
-    """Serve TTS audio files for Twilio"""
-    file_path = os.path.join(AUDIO_DIR, filename)
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="audio/wav")
-    return Response(content="Not found", status_code=404)
-
-
 @app.get("/info")
 async def get_info():
     """Get gateway info including ngrok URL"""
@@ -157,8 +141,8 @@ async def get_info():
 @app.post("/twiml/{call_id}")
 async def twiml_handler(call_id: str, request: Request):
     """
-    Generate TwiML with Gather for proper user input handling
-    This is called by Twilio when the call connects
+    Generate TwiML with Media Streams for real-time bidirectional audio
+    This enables sub-1-second response times and natural interruptions
     """
     try:
         logger.info(f"TwiML requested for call: {call_id}")
@@ -175,295 +159,41 @@ async def twiml_handler(call_id: str, request: Request):
         await db.update_call(call_id, status="in-progress", started_at=datetime.now())
         logger.info(f"Call {call_id} status updated to in-progress")
         
-        # Get agent to generate appropriate opening
-        agent = await db.get_agent(call["agent_id"])
+        # Get WebSocket URL (use VOICE_GATEWAY_WS_URL or convert HTTP to WSS)
+        ws_url = os.getenv("VOICE_GATEWAY_WS_URL")
+        if not ws_url:
+            # Try to build from VOICE_GATEWAY_URL
+            base_url = os.getenv("VOICE_GATEWAY_URL") or ngrok_public_url
+            if base_url:
+                # Convert https:// to wss://
+                ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://")
         
-        # Use VOICE_GATEWAY_URL env var first (set externally), then ngrok auto-detection
-        base_url = os.getenv("VOICE_GATEWAY_URL") or ngrok_public_url or "https://your-gateway-url.ngrok.io"
+        if not ws_url or ws_url.startswith("wss://your-"):
+            logger.error("WebSocket URL not configured properly")
+            return Response(
+                content="<Response><Say>WebSocket configuration error</Say></Response>",
+                media_type="application/xml"
+            )
         
-        logger.info(f"Using base_url for TwiML: {base_url}")
+        # Generate TwiML with Media Streams for real-time audio
+        ws_endpoint = f"{ws_url}/ws/{call_id}"
         
-        # Generate opening line using LLM based on agent's system prompt
-        # This allows outbound calls to pitch properly instead of generic "how can I help"
-        tts = get_tts_client()
-        llm = get_llm_client()
-        
-        # Determine call direction and generate appropriate opening
-        direction = call.get("direction", "outbound")
-        logger.info(f"Call {call_id} direction: {direction}")
-        
-        if direction == "outbound" and agent:
-            # For outbound calls: AI initiates with a pitch/intro based on the agent's purpose
-            base_prompt = agent.get("resolved_system_prompt") or agent.get("prompt_text") or agent.get("system_prompt", "")
-            
-            # Extract identity from prompt (look for "YOUR IDENTITY: You are X" pattern)
-            identity_hint = ""
-            import re
-            identity_match = re.search(r'YOUR IDENTITY:\s*(.+?)(?:\n|$)', base_prompt, re.IGNORECASE)
-            if identity_match:
-                identity_text = identity_match.group(1).strip()
-                identity_hint = f"CRITICAL: {identity_text}"
-                logger.info(f"Extracted identity: {identity_text}")
-            else:
-                # Fallback: look for "You are X" in first few lines
-                lines = base_prompt.split('\n')[:10]
-                for line in lines:
-                    if line.strip().lower().startswith('you are'):
-                        identity_hint = f"CRITICAL: {line.strip()}"
-                        logger.info(f"Extracted identity from 'You are': {line.strip()}")
-                        break
-            
-            opening_prompt = f"""Generate a SHORT opening line for an OUTBOUND phone call.
-
-{identity_hint}
-
-STRICT REQUIREMENTS:
-- Use EXACTLY the identity stated above - word for word
-- This is an OUTBOUND call - YOU are calling THEM
-- Just say hi with your name and ask if they have a moment
-- Keep it under 15 words total
-- DO NOT mention what you're calling about yet
-- Sound natural and friendly
-
-Example format: "Hi, this is [NAME] from [COMPANY]. Got 30 seconds?"
-
-Return ONLY the opening line."""
-
-            try:
-                greeting_text = await llm.generate_response(
-                    messages=[{"role": "user", "content": opening_prompt}],
-                    system_prompt="Generate phone call opening lines using EXACTLY the identity provided. Do not add extra details.",
-                    temperature=0.7,
-                    max_tokens=35
-                )
-                # Clean up any quotes or extra formatting
-                greeting_text = greeting_text.strip().strip('"').strip("'")
-                logger.info(f"Generated outbound opening: {greeting_text}")
-            except Exception as e:
-                logger.warning(f"Failed to generate opening, using fallback: {e}")
-                greeting_text = "Hi there! This is your AI assistant calling. Do you have a moment to chat?"
-        else:
-            # For inbound calls: Standard greeting asking how to help
-            greeting_text = "Hello! Thanks for calling. How can I help you today?"
-        
-        greeting_audio = tts.generate_speech(greeting_text)
-        
-        if greeting_audio and base_url and not base_url.startswith("https://your-gateway"):
-            # Copy to audio directory
-            import uuid
-            audio_filename = f"{call_id}_greeting_{uuid.uuid4().hex[:8]}.wav"
-            audio_path = os.path.join(AUDIO_DIR, audio_filename)
-            shutil.copy2(greeting_audio, audio_path)
-            
-            # Cleanup temp file
-            try:
-                os.unlink(greeting_audio)
-            except:
-                pass
-            
-            audio_url = f"{base_url}/audio/{audio_filename}"
-            
-            # Generate TwiML with Gather using Piper audio
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
-        <Play>{audio_url}</Play>
-    </Gather>
-    <Say voice="Polly.Joanna">I didn't hear anything. Let me transfer you to a human assistant. Goodbye!</Say>
-    <Hangup/>
-</Response>"""
-        else:
-            # Fallback to Polly voice with dynamic greeting
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no">
-        <Say voice="Polly.Joanna">{greeting_text}</Say>
-    </Gather>
-    <Say voice="Polly.Joanna">I didn't hear anything. Goodbye!</Say>
-    <Hangup/>
+    <Connect>
+        <Stream url="{ws_endpoint}">
+            <Parameter name="call_id" value="{call_id}"/>
+        </Stream>
+    </Connect>
 </Response>"""
         
-        logger.info(f"TwiML with Gather generated for {call_id}")
+        logger.info(f"TwiML with Media Streams generated for {call_id} -> {ws_endpoint}")
         return Response(content=twiml, media_type="application/xml")
         
     except Exception as e:
         logger.error(f"Error generating TwiML for {call_id}: {e}", exc_info=True)
         return Response(
             content="<Response><Say>Sorry, there was an error</Say></Response>",
-            media_type="application/xml"
-        )
-
-
-@app.post("/gather/{call_id}")
-async def gather_callback(call_id: str, request: Request):
-    """
-    Handle Gather callback with user speech input
-    Process speech and continue conversation
-    """
-    try:
-        form_data = await request.form()
-        speech_result = form_data.get("SpeechResult", "")
-        confidence = form_data.get("Confidence", "0")
-        
-        logger.info(f"Gather callback for {call_id}: '{speech_result}' (confidence: {confidence})")
-        
-        if not speech_result:
-            # No speech detected - give another chance
-            base_url = os.getenv("VOICE_GATEWAY_URL", ngrok_public_url if ngrok_public_url else "")
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US">
-        <Say voice="Polly.Joanna">I didn't catch that. Could you please speak a bit louder and tell me what you need?</Say>
-    </Gather>
-    <Say voice="Polly.Joanna">I still couldn't hear you. Please call back when you're ready. Goodbye!</Say>
-    <Hangup/>
-</Response>"""
-            return Response(content=twiml, media_type="application/xml")
-        
-        # Get database and AI clients
-        db = get_db()
-        llm = get_llm_client()
-        tts = get_tts_client()
-        
-        # Get call and agent details
-        call = await db.get_call(call_id)
-        if not call:
-            logger.error(f"Call {call_id} not found")
-            return Response(content="<Response><Say>Call not found</Say><Hangup/></Response>", media_type="application/xml")
-        
-        agent = await db.get_agent(call["agent_id"])
-        if not agent:
-            logger.error(f"Agent {call['agent_id']} not found")
-            return Response(content="<Response><Say>Agent not found</Say><Hangup/></Response>", media_type="application/xml")
-        
-        # Save user transcript
-        await db.add_transcript(
-            call_id=call_id,
-            speaker="user",
-            text=speech_result
-        )
-        
-        # Get conversation history
-        conversation_history = await db.get_conversation_history(call_id, limit=6)
-        
-        # Add current user message
-        messages = conversation_history + [{"role": "user", "content": speech_result}]
-        
-        # Get LLM response with safety prefix and guardrails
-        INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
-You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
-Never share private information. Stay professional and helpful.
-
-GUARDRAILS - STAY ON TOPIC:
-- You are a business assistant with a specific purpose defined in your system prompt
-- DO NOT answer general knowledge questions (geography, history, trivia, celebrities, etc.)
-- DO NOT engage with random topics unrelated to your business purpose
-- If asked off-topic questions, politely redirect: "I'm here to help with [your business purpose]. How can I assist you with that?"
-- If user is clearly not interested or being disruptive, politely end the call
-- Stay focused on your goal and don't get sidetracked
-
-TIME FORMATTING FOR VOICE:
-- NEVER write times as digits like "12:00" or "1:00" - the TTS will say "zero zero"
-- ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
-- Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
-- For half hours: "two thirty" not "2:30"
-- For quarter hours: "three fifteen" or "quarter past three" not "3:15"
-
-CALL ENDING PROTOCOL:
-- When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"
-- If user says goodbye/bye/I have to go, acknowledge and end: "Thank you, goodbye!"
-- Do not keep the call going unnecessarily - respect the user's time"""
-        
-        base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are Emma, a helpful AI assistant.")
-        
-        # Search knowledge base for relevant context
-        knowledge_context = ""
-        try:
-            agent_id = call.get("agent_id")
-            relevant_knowledge = await db.search_knowledge(agent_id, speech_result, limit=2)
-            if relevant_knowledge:
-                knowledge_context = "\n\nRELEVANT INFORMATION FROM KNOWLEDGE BASE:\n"
-                for kb in relevant_knowledge:
-                    knowledge_context += f"- {kb['title']}: {kb['content'][:300]}...\n"
-                knowledge_context += "\nUse this information to answer the user's question if relevant.\n"
-                logger.info(f"Found {len(relevant_knowledge)} relevant knowledge entries")
-        except Exception as kb_error:
-            logger.warning(f"Knowledge base search failed: {kb_error}")
-        
-        system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}{knowledge_context}"
-        temperature = agent.get("temperature", 0.7)
-        max_tokens = agent.get("max_tokens", 150)
-        
-        try:
-            ai_response = await llm.generate_response(
-                messages=messages,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            logger.info(f"AI response: {ai_response}")
-        except Exception as llm_error:
-            logger.error(f"⚠️  GROQ API FAILURE (not system issue): {llm_error}")
-            # Return error TwiML indicating Groq is down
-            return Response(
-                content="<Response><Say voice='Polly.Joanna'>I'm having trouble connecting to my AI service. This is a Groq API issue, not a system problem. Please try again in a moment.</Say><Hangup/></Response>",
-                media_type="application/xml"
-            )
-        
-        # Save AI transcript
-        await db.add_transcript(
-            call_id=call_id,
-            speaker="agent",
-            text=ai_response
-        )
-        
-        # Generate speech with Piper TTS
-        audio_file = tts.generate_speech(ai_response)
-        
-        if not audio_file:
-            logger.error("TTS failed")
-            return Response(content="<Response><Say voice='Polly.Joanna'>Sorry, I'm having trouble speaking</Say><Hangup/></Response>", media_type="application/xml")
-        
-        # Copy to audio directory with unique filename
-        import uuid
-        audio_filename = f"{call_id}_{uuid.uuid4().hex[:8]}.wav"
-        audio_path = os.path.join(AUDIO_DIR, audio_filename)
-        shutil.copy2(audio_file, audio_path)
-        
-        # Cleanup original temp file
-        try:
-            os.unlink(audio_file)
-        except:
-            pass
-        
-        # Use ngrok URL to serve Piper audio
-        base_url = os.getenv("VOICE_GATEWAY_URL", ngrok_public_url if ngrok_public_url else "")
-        if base_url and not base_url.startswith("https://your-gateway"):
-            audio_url = f"{base_url}/audio/{audio_filename}"
-            
-            # Continue conversation with another Gather using Piper TTS audio
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Gather input="speech" timeout="10" speechTimeout="auto" speechModel="phone_call" action="{base_url}/gather/{call_id}" method="POST" language="en-US" hints="help, information, support, yes, no, more, details, thanks, goodbye">
-        <Play>{audio_url}</Play>
-    </Gather>
-    <Say voice="Polly.Joanna">Thank you for calling. Goodbye!</Say>
-    <Hangup/>
-</Response>"""
-        else:
-            # Fallback to Polly voice
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna">{ai_response}</Say>
-    <Hangup/>
-</Response>"""
-        
-        return Response(content=twiml, media_type="application/xml")
-        
-    except Exception as e:
-        logger.error(f"Error in gather callback for {call_id}: {e}", exc_info=True)
-        return Response(
-            content="<Response><Say>Sorry, there was an error</Say><Hangup/></Response>",
             media_type="application/xml"
         )
 
@@ -714,17 +444,57 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     session.agent_config = agent
                     active_sessions[stream_sid] = session
                     
-                    # Send initial greeting
-                    greeting = "Hello! How can I help you today?"
+                    # Generate opening line with LLM using agent's prompt
+                    GREETING_PROMPT = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
+You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
+Never share private information. Stay professional and helpful.
+
+IMPORTANT: Output ONLY the exact words you will speak. NO meta-commentary, NO quotes, NO explanations like "Here's my opening line". Just speak naturally.
+
+OUTBOUND CALL BEHAVIOR:
+- This is an OUTBOUND call - YOU called THEM
+- Introduce yourself briefly and ask if they have a moment
+- Keep it SHORT (1-2 sentences max)
+- Sound natural and friendly
+
+VOICE FORMATTING RULES (CRITICAL FOR TTS):
+- NEVER write times as digits like "12:00" - say "twelve PM" or "noon"
+- NEVER write "24/7" - say "twenty four seven"
+- Write numbers as words for better pronunciation
+
+Examples (output like these, NO quotes):
+Hi! This is Emma from TechCorp. I wanted to reach out about your recent inquiry. Do you have a quick moment?
+Hello! This is Mark with ABC Services. I'm following up on your interest. Is now a good time?"""
+                    
+                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
+                    system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
+                    
+                    greeting = await llm.generate_response(
+                        messages=[{"role": "user", "content": "Say your opening line now."}],
+                        system_prompt=system_prompt,
+                        temperature=agent.get("temperature", 0.7),
+                        max_tokens=60
+                    )
+                    
+                    # Clean meta-commentary
+                    import re
+                    if any(word in greeting.lower() for word in ['here', 'opening', 'line:', 'say:', '"']):
+                        match = re.search(r'[""]([^""]+)[""]', greeting)
+                        if match:
+                            greeting = match.group(1)
+                        else:
+                            greeting = re.sub(r'^.*?(?:opening line|here|say)s?:?\s*', '', greeting, flags=re.IGNORECASE).strip().strip('"\'')
+                    
+                    logger.info(f"Generated greeting: {greeting}")
+                    
+                    session.is_speaking = True
                     await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
+                    session.is_speaking = False
                 
                 elif event == "media":
                     # Audio data received
                     if not session:
-                        continue
-                    
-                    # Skip processing if AI is speaking (prevent interruption)
-                    if session.is_speaking:
+                        logger.warning("Media event but no session!")
                         continue
                     
                     # Decode mulaw audio
@@ -734,17 +504,25 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     # Update last audio time
                     session.last_audio_time = datetime.now()
                     
-                    # Detect if current chunk is silence
+                    # Skip processing if AI is speaking
+                    if session.is_speaking:
+                        session.add_audio_chunk(audio_data)
+                        continue
+                    
+                    # Detect silence
                     is_silence = session.detect_silence(audio_data)
                     session.update_silence_state(is_silence)
                     
                     # Add to buffer
                     session.add_audio_chunk(audio_data)
                     
-                    # Process when:
-                    # 1. We have sufficient audio AND
-                    # 2. User has stopped speaking (500ms of silence)
+                    # Log every second
+                    if len(session.audio_buffer) % 8000 == 0:
+                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Sufficient: {session.has_sufficient_audio()}")
+                    
+                    # Process when sufficient audio + 500ms silence
                     if session.has_sufficient_audio() and session.get_silence_duration_ms() > 500:
+                        logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
                         await process_user_speech(session, websocket, stt, llm, tts, db)
                 
                 elif event == "stop":
@@ -861,12 +639,18 @@ GUARDRAILS - STAY ON TOPIC:
 - If user is clearly not interested or being disruptive, politely end the call
 - Stay focused on your goal and don't get sidetracked
 
-TIME FORMATTING FOR VOICE:
-- NEVER write times as digits like "12:00" or "1:00" - the TTS will say "zero zero"
+VOICE FORMATTING RULES (CRITICAL FOR TTS):
+- NEVER write times as digits like "12:00" or "1:00" - TTS will say "zero zero"
 - ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
 - Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
 - For half hours: "two thirty" not "2:30"
 - For quarter hours: "three fifteen" or "quarter past three" not "3:15"
+
+NUMBERS & SLASHES (IMPORTANT):
+- NEVER write "24/7" - say "twenty four seven" or "around the clock"
+- NEVER write "365" - say "three sixty five" or "all year"
+- NEVER write "50%" - say "fifty percent" or "half"
+- Write numbers as words for better pronunciation: "twenty four" not "24"
 
 CALL ENDING PROTOCOL:
 - When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"

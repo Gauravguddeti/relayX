@@ -926,19 +926,19 @@
             <!-- Knowledge Base -->
             <div class="section-card">
                 <h2>📚 Knowledge Base</h2>
-                <p style="font-size: 13px; color: var(--slate); margin-bottom: 16px;">
+                <p style="font-size: 13px; color: #94a3b8; margin-bottom: 16px;">
                     Add information that your AI agent can reference during calls
                 </p>
                 
                 <div class="form-group">
-                    <label for="kbAgentSelect">Agent</label>
+                    <label for="kbAgentSelect" style="color: #e2e8f0;">Agent</label>
                     <select id="kbAgentSelect" onchange="loadKnowledge()">
                         <option value="">Select agent...</option>
                     </select>
                 </div>
                 
                 <div id="knowledgeList" style="margin-bottom: 16px;">
-                    <p style="text-align: center; color: var(--slate); padding: 20px;">
+                    <p style="text-align: center; color: #94a3b8; padding: 20px;">
                         Select an agent to view knowledge base
                     </p>
                 </div>
@@ -977,6 +977,28 @@ Example: Our pricing plans are..."></textarea>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="closeKnowledgeModal()">Cancel</button>
                     <button class="btn btn-primary" onclick="addKnowledge()">Add Knowledge</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Knowledge Modal -->
+        <div class="modal" id="viewKnowledgeModal">
+            <div class="modal-content" style="max-width: 900px;">
+                <div class="modal-header">
+                    <h2 id="viewKbTitle">Knowledge Entry</h2>
+                    <span class="close" onclick="closeViewKnowledgeModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div style="margin-bottom: 16px;">
+                        <div id="viewKbMeta" style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--slate);"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Full Content</label>
+                        <div id="viewKbContent" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px; padding: 16px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--frost);"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeViewKnowledgeModal()">Close</button>
                 </div>
             </div>
         </div>
@@ -1635,23 +1657,26 @@ Example: Our pricing plans are..."></textarea>
                     const wordCount = kb.metadata?.word_count || kb.content.split(/\s+/).length;
                     
                     return `
-                    <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+                    <div style="background: var(--slate); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px; padding: 16px; margin-bottom: 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: start;">
                             <div style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                    <strong style="color: var(--cyan); font-size: 14px;">${kb.title}</strong>
-                                    <span style="font-size: 11px; color: var(--slate); background: rgba(0, 0, 0, 0.4); padding: 2px 8px; border-radius: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <strong style="color: var(--electric); font-size: 15px;">${kb.title}</strong>
+                                    <span style="font-size: 11px; color: #a0aec0; background: rgba(0, 0, 0, 0.5); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);">
                                         ${sourceIcon} ${sourceText}
                                     </span>
                                 </div>
-                                <p style="font-size: 12px; color: var(--frost); margin: 0 0 8px 0; line-height: 1.5;">
+                                <p style="font-size: 13px; color: #e2e8f0; margin: 0 0 10px 0; line-height: 1.6;">
                                     ${kb.content.substring(0, 150)}${kb.content.length > 150 ? '...' : ''}
                                 </p>
-                                <div style="font-size: 11px; color: var(--slate);">
+                                <div style="font-size: 12px; color: #94a3b8;">
                                     📊 ${wordCount.toLocaleString()} words
                                 </div>
                             </div>
-                            <button class="btn" style="padding: 4px 12px; font-size: 12px; margin-left: 12px;" onclick="deleteKnowledge('${kb.id}')">🗑️</button>
+                            <div style="display: flex; gap: 8px; margin-left: 12px;">
+                                <button class="btn" style="padding: 6px 14px; font-size: 12px; background: rgba(0, 240, 255, 0.1); border: 1px solid var(--electric);" onclick='viewKnowledge(${JSON.stringify(kb)})'>👁️ View</button>
+                                <button class="btn" style="padding: 6px 14px; font-size: 12px; background: rgba(255, 51, 102, 0.1); border: 1px solid var(--signal-red);" onclick="deleteKnowledge('${kb.id}')">🗑️</button>
+                            </div>
                         </div>
                     </div>
                 `}).join('');
@@ -1676,6 +1701,54 @@ Example: Our pricing plans are..."></textarea>
             document.getElementById('knowledgeModal').style.display = 'none';
             document.getElementById('kbTitle').value = '';
             document.getElementById('kbContent').value = '';
+        }
+
+        function viewKnowledge(kb) {
+            const modal = document.getElementById('viewKnowledgeModal');
+            document.getElementById('viewKbTitle').textContent = kb.title;
+            document.getElementById('viewKbContent').textContent = kb.content;
+            
+            // Build metadata display
+            let metaItems = [];
+            
+            // Source
+            if (kb.source_url) {
+                const domain = new URL(kb.source_url).hostname.replace('www.', '');
+                metaItems.push(`🌐 <strong>Source:</strong> <a href="${kb.source_url}" target="_blank" style="color: var(--cyan);">${domain}</a>`);
+            } else if (kb.source_file) {
+                metaItems.push(`📁 <strong>Source:</strong> ${kb.source_file}`);
+            } else {
+                metaItems.push(`📝 <strong>Source:</strong> Manual entry`);
+            }
+            
+            // Word count
+            const wordCount = kb.metadata?.word_count || kb.content.split(/\s+/).length;
+            metaItems.push(`📊 <strong>Words:</strong> ${wordCount.toLocaleString()}`);
+            
+            // Character count
+            metaItems.push(`🔤 <strong>Characters:</strong> ${kb.content.length.toLocaleString()}`);
+            
+            // Created date
+            if (kb.created_at) {
+                const date = new Date(kb.created_at);
+                metaItems.push(`📅 <strong>Created:</strong> ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+            }
+            
+            // Active status
+            const statusBadge = kb.is_active ? 
+                '<span style="color: var(--signal-green);">✅ Active</span>' : 
+                '<span style="color: var(--signal-red);">❌ Inactive</span>';
+            metaItems.push(`<strong>Status:</strong> ${statusBadge}`);
+            
+            document.getElementById('viewKbMeta').innerHTML = metaItems.map(item => 
+                `<div style="padding: 6px 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; border: 1px solid var(--border);">${item}</div>`
+            ).join('');
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeViewKnowledgeModal() {
+            document.getElementById('viewKnowledgeModal').style.display = 'none';
         }
         
         function openUploadFileModal() {

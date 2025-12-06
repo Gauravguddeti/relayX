@@ -73,7 +73,7 @@ class AgentCreate(BaseModel):
     voice_settings: dict = Field(default_factory=dict, description="Voice configuration")
     llm_model: str = Field(default="llama3:8b", description="LLM model to use")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=150, ge=50, le=500)
+    max_tokens: int = Field(default=100, ge=50, le=500)
     is_active: bool = Field(default=True)
 
 
@@ -115,7 +115,7 @@ class PreviewRequest(BaseModel):
     prompt_text: str = Field(..., min_length=10, max_length=2000, description="Prompt to test")
     sample_user_input: str = Field(..., min_length=1, max_length=500, description="Sample user input")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0)
-    max_tokens: int = Field(default=150, ge=50, le=300)
+    max_tokens: int = Field(default=100, ge=50, le=300)
 
 
 # ==================== DASHBOARD ====================
