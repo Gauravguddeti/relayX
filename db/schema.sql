@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS agents (
     voice_settings JSONB DEFAULT '{}', -- TTS voice settings
     llm_model VARCHAR(100) DEFAULT 'llama3:8b',
     temperature FLOAT DEFAULT 0.7,
-    max_tokens INTEGER DEFAULT 150,
+    max_tokens INTEGER DEFAULT 100,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

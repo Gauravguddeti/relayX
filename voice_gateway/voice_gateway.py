@@ -70,6 +70,9 @@ class CallSession:
         self.last_audio_time = datetime.now()
         self.silence_start = None
         self.created_at = datetime.now()
+        # Energy tracking for adaptive silence detection
+        self.recent_energy = []  # Last 10 chunks
+        self.baseline_energy = 70.0  # Will adapt to background noise
         
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
@@ -90,13 +93,28 @@ class CallSession:
         min_bytes = (TWILIO_SAMPLE_RATE * min_duration_ms) // 1000
         return len(self.audio_buffer) >= min_bytes
     
-    def detect_silence(self, audio_data: bytes, threshold: int = 5) -> bool:
-        """Simple energy-based silence detection"""
+    def detect_silence(self, audio_data: bytes) -> bool:
+        """Adaptive energy-based silence detection for mulaw audio"""
         if len(audio_data) == 0:
             return True
-        # Calculate average absolute value (simple energy)
+        
+        # Calculate energy (deviation from mulaw center 127)
         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
-        return energy < threshold
+        
+        # Track recent energy levels
+        self.recent_energy.append(energy)
+        if len(self.recent_energy) > 10:
+            self.recent_energy.pop(0)
+        
+        # Adapt baseline to background noise (use minimum of recent samples)
+        if len(self.recent_energy) >= 5:
+            self.baseline_energy = min(self.recent_energy)
+        
+        # Silence = energy close to baseline (within 30 units)
+        # Speech = energy significantly above baseline (30+ units higher)
+        is_silence = energy < (self.baseline_energy + 30)
+        
+        return is_silence
     
     def update_silence_state(self, is_silence: bool):
         """Track silence duration for VAD"""
@@ -111,6 +129,13 @@ class CallSession:
         if self.silence_start is None:
             return 0
         return int((datetime.now() - self.silence_start).total_seconds() * 1000)
+    
+    def reset_for_ai_speech(self):
+        """Reset state when AI starts speaking to prevent echo contamination"""
+        self.audio_buffer.clear()
+        self.silence_start = None
+        self.recent_energy = []  # Reset baseline tracking
+        self.baseline_energy = 70.0  # Reset to default
 
 
 # ==================== TWIML ENDPOINTS ====================
@@ -487,8 +512,13 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     
                     logger.info(f"Generated greeting: {greeting}")
                     
+                    # Set speaking flag and clear buffer BEFORE sending (blocks new audio)
                     session.is_speaking = True
-                    await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
+                    session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
+                    duration = await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
+                    
+                    # Keep is_speaking=True for the full audio duration + buffer
+                    await asyncio.sleep(duration + 0.5)
                     session.is_speaking = False
                 
                 elif event == "media":
@@ -504,9 +534,10 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     # Update last audio time
                     session.last_audio_time = datetime.now()
                     
-                    # Skip processing if AI is speaking
+                    # Skip processing if AI is speaking (prevents echo and interruption)
                     if session.is_speaking:
-                        session.add_audio_chunk(audio_data)
+                        # Don't buffer during AI speech - prevents echo contamination
+                        logger.debug(f"🚫 Skipping audio during AI speech: {len(audio_data)} bytes | is_speaking={session.is_speaking}")
                         continue
                     
                     # Detect silence
@@ -516,12 +547,14 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     # Add to buffer
                     session.add_audio_chunk(audio_data)
                     
-                    # Log every second
+                    # Log every second with silence status
                     if len(session.audio_buffer) % 8000 == 0:
-                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Sufficient: {session.has_sufficient_audio()}")
+                        # Calculate energy for debug
+                        energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
+                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
                     
-                    # Process when sufficient audio + 500ms silence
-                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 500:
+                    # Process when sufficient audio + longer silence (allows multi-sentence responses)
+                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 1200:
                         logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
                         await process_user_speech(session, websocket, stt, llm, tts, db)
                 
@@ -573,6 +606,16 @@ async def process_user_speech(
             return
         
         logger.info(f"Processing {len(audio_mulaw)} bytes of audio for call {session.call_id}")
+        
+        # Check audio quality - calculate average energy
+        avg_energy = sum(abs(b - 127) for b in audio_mulaw) / len(audio_mulaw)
+        logger.debug(f"Audio energy: {avg_energy:.1f}")
+        
+        # Reject if energy too low (likely silence/background noise/echo)
+        # Set threshold carefully: echo ~65-75, real speech ~75-95
+        if avg_energy < 75:
+            logger.info(f"Audio energy too low ({avg_energy:.1f}), likely background noise/echo - skipping transcription")
+            return
         
         # Convert mulaw to linear PCM for Whisper
         audio_pcm = audioop.ulaw2lin(audio_mulaw, 2)  # 2 bytes per sample (16-bit)
@@ -688,7 +731,11 @@ CALL ENDING PROTOCOL:
         
         # Generate speech and send to Twilio
         session.is_speaking = True
-        await send_ai_response(websocket, session.stream_sid, ai_response, tts, db, session.call_id)
+        session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
+        duration = await send_ai_response(websocket, session.stream_sid, ai_response, tts, db, session.call_id)
+        
+        # Keep is_speaking=True for the full audio duration + buffer
+        await asyncio.sleep(duration + 0.5)
         session.is_speaking = False
         
     except Exception as e:
@@ -702,8 +749,8 @@ async def send_ai_response(
     tts: TTSClient,
     db: SupabaseDB,
     call_id: str
-):
-    """Generate speech and send to Twilio"""
+) -> float:
+    """Generate speech and send to Twilio. Returns audio duration in seconds."""
     try:
         # Generate speech
         audio_file = tts.generate_speech(text)
@@ -746,18 +793,7 @@ async def send_ai_response(
         if channels == 2:
             audio_pcm = audioop.tomono(audio_pcm, sample_width, 1, 1)
         
-        # Normalize audio level to prevent clipping/distortion
-        if sample_width == 2:  # 16-bit audio
-            # Calculate max amplitude
-            max_amplitude = audioop.max(audio_pcm, sample_width)
-            if max_amplitude > 0:
-                # Normalize to 90% of max range to prevent clipping
-                target_max = int(32767 * 0.9)
-                factor = target_max / max_amplitude
-                if factor < 1.0:  # Only normalize if too loud
-                    audio_pcm = audioop.mul(audio_pcm, sample_width, factor)
-        
-        # Convert to mulaw
+        # Convert to mulaw (remove normalization - causes distortion)
         audio_mulaw = audioop.lin2ulaw(audio_pcm, sample_width)
         
         # Send to Twilio in chunks
@@ -778,16 +814,19 @@ async def send_ai_response(
             
             await websocket.send_text(json.dumps(message))
             
-            # Small delay to maintain timing (20ms per chunk)
-            await asyncio.sleep(0.02)
+            # No delay - send as fast as possible, Twilio buffers it
         
-        # Add small pause after AI finishes speaking
-        await asyncio.sleep(0.3)
+        # Calculate audio duration (bytes / sample_rate)
+        audio_duration_seconds = len(audio_mulaw) / TWILIO_SAMPLE_RATE
         
-        logger.info(f"Sent AI speech to Twilio: {len(audio_mulaw)} bytes")
+        # Mark sent
+        logger.info(f"Sent AI speech to Twilio: {len(audio_mulaw)} bytes ({audio_duration_seconds:.1f}s)")
+        
+        return audio_duration_seconds
         
     except Exception as e:
         logger.error(f"Error sending AI response: {e}")
+        return 0.0
 
 
 # ==================== STARTUP ====================
