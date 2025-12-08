@@ -499,7 +499,7 @@ Examples (output like these, NO quotes):
 Hi! This is Emma from TechCorp. I wanted to reach out about your recent inquiry. Do you have a quick moment?
 Hello! This is Mark with ABC Services. I'm following up on your interest. Is now a good time?"""
                     
-                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
+                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant. Which works for outbound calls.")
                     system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
                     
                     greeting = await llm.generate_response(
@@ -519,6 +519,13 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                             greeting = re.sub(r'^.*?(?:opening line|here|say)s?:?\s*', '', greeting, flags=re.IGNORECASE).strip().strip('"\'')
                     
                     logger.info(f"Generated greeting: {greeting}")
+                    
+                    # Save greeting to database BEFORE sending (for conversation context)
+                    await db.add_transcript(
+                        call_id=call_id,
+                        speaker="agent",
+                        text=greeting
+                    )
                     
                     # Set speaking flag and clear buffer BEFORE sending (blocks new audio)
                     session.is_speaking = True
@@ -561,8 +568,8 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
                         logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
                     
-                    # Process when sufficient audio + longer silence (allows multi-sentence responses)
-                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > session.SILENCE_THRESHOLD_MS:
+                    # Process when sufficient audio + longer silence (allows multi-sentence responses with natural pauses)
+                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 2500:
                         logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
                         await process_user_speech(session, websocket, stt, llm, tts, db)
                 
@@ -682,6 +689,25 @@ OUTBOUND CALL BEHAVIOR:
 - If they ask "who is this?" or "what's this about?" - briefly reintroduce and explain your purpose
 - Be respectful of their time - get to the point quickly
 - Don't keep asking "how can I help you" - YOU are calling with a specific purpose
+
+NATURAL CONVERSATION FLOW (CRITICAL):
+- Accept partial responses naturally - "Yes", "Yeah", "Okay" are valid confirmations, don't challenge them
+- If user gives a short answer like "Yes" to a question asking for details, simply rephrase or move forward naturally
+- NEVER say "you repeated yourself" or "that's what I just asked" - it's rude and breaks rapport
+- NEVER point out supposed "misunderstandings" - just clarify naturally: "Got it. Could you share more details about that?"
+- If a response seems unclear, ask a follow-up question naturally without being pedantic
+- Keep the conversation flowing smoothly - don't be overly literal or robotic
+- Phone conversations naturally have brief responses - embrace them, don't fight them
+
+BREVITY IS CRUCIAL (PHONE CALL ETIQUETTE):
+- Keep responses SHORT - aim for 2-3 sentences maximum per response
+- Long speeches (10+ seconds) make people tune out on phone calls
+- Break complex information into smaller chunks - ask a question, get feedback, continue
+- If user says "thank you" or gives minimal responses, they may be trying to end politely - wrap up quickly
+- Don't over-explain - give just enough information to move the conversation forward
+- After explaining something, ALWAYS ask a question to keep them engaged
+- Respect that their time is valuable - be concise and direct
+- Phone conversations naturally have brief responses - embrace them, don't fight them
 
 GUARDRAILS - STAY ON TOPIC:
 - You are a business assistant with a specific purpose defined in your system prompt
