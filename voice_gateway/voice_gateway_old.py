@@ -56,7 +56,7 @@ class CallSession:
         self.agent_id = agent_id
         self.is_speaking = False  # AI is currently speaking
         self.conversation_history = []
-        self.agent_config = None  # type: ignore
+        self.agent_config = None
         self.partial_transcript = ""  # Current partial transcript
         self.user_is_speaking = False  # User is currently speaking
         self.last_activity = datetime.now()
@@ -177,6 +177,13 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
         
         logger.info(f"Generated greeting: {greeting}")
         
+        # Generate TTS for greeting
+        tts = get_tts_client()
+        audio_path = await tts.text_to_speech(greeting, session_id=call_id)
+        
+        # Upload to public URL (you'll need to serve this)
+        audio_url = f"{base_url}/audio/{call_id}_greeting.mp3"
+        
         # Save transcript
         await db.add_transcript(call_id, "assistant", greeting)
         
@@ -217,8 +224,8 @@ async def partial_result_handler(call_id: str, request: Request):
     """
     try:
         form_data = await request.form()
-        unstable_speech = str(form_data.get("UnstableSpeechResult", ""))
-        stability = str(form_data.get("Stability", "0.0"))
+        unstable_speech = form_data.get("UnstableSpeechResult", "")
+        stability = form_data.get("Stability", "0.0")
         
         logger.info(f"📝 Partial result for {call_id}: '{unstable_speech}' (stability: {stability})")
         
@@ -255,8 +262,8 @@ async def gather_result_handler(call_id: str, request: Request):
     """
     try:
         form_data = await request.form()
-        speech_result = str(form_data.get("SpeechResult", ""))
-        confidence = str(form_data.get("Confidence", "0.0"))
+        speech_result = form_data.get("SpeechResult", "")
+        confidence = form_data.get("Confidence", "0.0")
         
         logger.info(f"🎤 Final speech for {call_id}: '{speech_result}' (confidence: {confidence})")
         
@@ -498,20 +505,20 @@ async def status_callback(call_id: str, request: Request):
     """
     try:
         form_data = await request.form()
-        status = str(form_data.get("CallStatus", ""))
-        call_sid = str(form_data.get("CallSid", ""))
-        duration = str(form_data.get("CallDuration", ""))
+        status = form_data.get("CallStatus")
+        call_sid = form_data.get("CallSid")
+        duration = form_data.get("CallDuration")
         
         logger.info(f"Status callback for {call_id}: {status} | SID: {call_sid}")
         
         db = get_db()
-        update_data: dict = {"status": status}  # type: ignore
+        update_data = {"status": status}
         
         # Handle terminal states (call is done)
         if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
-            update_data["ended_at"] = datetime.now()  # type: ignore
+            update_data["ended_at"] = datetime.now()
             if duration:
-                update_data["duration"] = int(duration)  # type: ignore
+                update_data["duration"] = int(duration)
             
             # Only generate analysis for completed calls with conversation
             if status == "completed":
@@ -537,9 +544,9 @@ async def recording_callback(call_id: str, request: Request):
     """
     try:
         form_data = await request.form()
-        recording_url = str(form_data.get("RecordingUrl", ""))
-        recording_sid = str(form_data.get("RecordingSid", ""))
-        recording_duration = str(form_data.get("RecordingDuration", ""))
+        recording_url = form_data.get("RecordingUrl")
+        recording_sid = form_data.get("RecordingSid")
+        recording_duration = form_data.get("RecordingDuration")
         
         logger.info(f"Recording callback for {call_id}: {recording_sid} | Duration: {recording_duration}s")
         
@@ -548,12 +555,12 @@ async def recording_callback(call_id: str, request: Request):
             # Twilio recording URL needs .mp3 appended for direct download
             full_recording_url = f"{recording_url}.mp3"
             
-            update_data: dict = {  # type: ignore
+            update_data = {
                 "recording_url": full_recording_url,
             }
             
             if recording_duration:
-                update_data["recording_duration"] = int(recording_duration)  # type: ignore
+                update_data["recording_duration"] = int(recording_duration)
             
             await db.update_call(call_id, **update_data)
             logger.info(f"✅ Recording URL saved for {call_id}: {full_recording_url}")
@@ -611,6 +618,462 @@ async def startup_event():
         logger.info("You can start ngrok manually: ngrok http 8001")
     
     # Pre-load AI models (skip STT since we're using Twilio's built-in)
+    try:
+        logger.info("Loading TTS client...")
+        tts = get_tts_client()
+        logger.info("✅ TTS ready")
+    except Exception as e:
+        logger.error(f"Failed to load TTS: {e}")
+    
+    logger.info("🎉 Voice Gateway startup complete")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    host = os.getenv("VOICE_GATEWAY_HOST", "0.0.0.0")
+    port = int(os.getenv("VOICE_GATEWAY_PORT", 8001))
+    
+    uvicorn.run(
+        "voice_gateway:app",
+        host=host,
+        port=port,
+        reload=False,  # Disable reload to keep models in memory
+        log_level="info"
+    )
+
+        
+        stream_sid = None
+        
+        # Main message loop
+        while True:
+            try:
+                # Receive message from Twilio
+                message = await websocket.receive_text()
+                data = json.loads(message)
+                event = data.get("event")
+                
+                if event == "start":
+                    # Stream started
+                    stream_sid = data["start"]["streamSid"]
+                    logger.info(f"Stream started: {stream_sid}")
+                    
+                    # Create session
+                    session = CallSession(call_id, agent["id"], stream_sid)
+                    session.agent_config = agent
+                    active_sessions[stream_sid] = session
+                    
+                    # Generate opening line with LLM using agent's prompt
+                    GREETING_PROMPT = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
+You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
+Never share private information. Stay professional and helpful.
+
+IMPORTANT: Output ONLY the exact words you will speak. NO meta-commentary, NO quotes, NO explanations like "Here's my opening line". Just speak naturally.
+
+OUTBOUND CALL BEHAVIOR:
+- This is an OUTBOUND call - YOU called THEM
+- Introduce yourself briefly and ask if they have a moment
+- Keep it SHORT (1-2 sentences max)
+- Sound natural and friendly
+
+VOICE FORMATTING RULES (CRITICAL FOR TTS):
+- NEVER write times as digits like "12:00" - say "twelve PM" or "noon"
+- NEVER write "24/7" - say "twenty four seven"
+- Write numbers as words for better pronunciation
+
+Examples (output like these, NO quotes):
+Hi! This is Emma from TechCorp. I wanted to reach out about your recent inquiry. Do you have a quick moment?
+Hello! This is Mark with ABC Services. I'm following up on your interest. Is now a good time?"""
+                    
+                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
+                    system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
+                    
+                    greeting = await llm.generate_response(
+                        messages=[{"role": "user", "content": "Say your opening line now."}],
+                        system_prompt=system_prompt,
+                        temperature=agent.get("temperature", 0.7),
+                        max_tokens=60
+                    )
+                    
+                    # Clean meta-commentary
+                    import re
+                    if any(word in greeting.lower() for word in ['here', 'opening', 'line:', 'say:', '"']):
+                        match = re.search(r'[""]([^""]+)[""]', greeting)
+                        if match:
+                            greeting = match.group(1)
+                        else:
+                            greeting = re.sub(r'^.*?(?:opening line|here|say)s?:?\s*', '', greeting, flags=re.IGNORECASE).strip().strip('"\'')
+                    
+                    logger.info(f"Generated greeting: {greeting}")
+                    
+                    # Set speaking flag and clear buffer BEFORE sending (blocks new audio)
+                    session.is_speaking = True
+                    session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
+                    duration = await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
+                    
+                    # Keep is_speaking=True for the full audio duration + buffer
+                    await asyncio.sleep(duration + 0.5)
+                    session.is_speaking = False
+                
+                elif event == "media":
+                    # Audio data received
+                    if not session:
+                        logger.warning("Media event but no session!")
+                        continue
+                    
+                    # Decode mulaw audio
+                    payload = data["media"]["payload"]
+                    audio_data = base64.b64decode(payload)
+                    
+                    # Update last audio time
+                    session.last_audio_time = datetime.now()
+                    
+                    # Skip processing if AI is speaking (prevents echo and interruption)
+                    if session.is_speaking:
+                        # Don't buffer during AI speech - prevents echo contamination
+                        logger.debug(f"🚫 Skipping audio during AI speech: {len(audio_data)} bytes | is_speaking={session.is_speaking}")
+                        continue
+                    
+                    # Detect silence
+                    is_silence = session.detect_silence(audio_data)
+                    session.update_silence_state(is_silence)
+                    
+                    # Add to buffer
+                    session.add_audio_chunk(audio_data)
+                    
+                    # Log every second with silence status
+                    if len(session.audio_buffer) % 8000 == 0:
+                        # Calculate energy for debug
+                        energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
+                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
+                    
+                    # Process when sufficient audio + longer silence (allows multi-sentence responses)
+                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 1200:
+                        logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
+                        await process_user_speech(session, websocket, stt, llm, tts, db)
+                
+                elif event == "stop":
+                    # Stream ended
+                    logger.info(f"Stream stopped: {stream_sid}")
+                    break
+                
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for call {call_id}")
+                break
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON received: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                continue
+        
+    except Exception as e:
+        logger.error(f"WebSocket error for call {call_id}: {e}")
+    
+    finally:
+        # Cleanup
+        if session and session.stream_sid in active_sessions:
+            del active_sessions[session.stream_sid]
+        
+        logger.info(f"WebSocket closed for call {call_id}")
+        
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+async def process_user_speech(
+    session: CallSession,
+    websocket: WebSocket,
+    stt: STTClient,
+    llm: LLMClient,
+    tts: TTSClient,
+    db: SupabaseDB
+):
+    """Process accumulated user speech"""
+    try:
+        # Get audio from buffer
+        audio_mulaw = session.get_and_clear_buffer()
+        
+        if not audio_mulaw:
+            return
+        
+        logger.info(f"Processing {len(audio_mulaw)} bytes of audio for call {session.call_id}")
+        
+        # Check audio quality - calculate average energy
+        avg_energy = sum(abs(b - 127) for b in audio_mulaw) / len(audio_mulaw)
+        logger.debug(f"Audio energy: {avg_energy:.1f}")
+        
+        # Reject if energy too low (likely silence/background noise/echo)
+        # Set threshold carefully: echo ~65-75, real speech ~75-95
+        if avg_energy < 75:
+            logger.info(f"Audio energy too low ({avg_energy:.1f}), likely background noise/echo - skipping transcription")
+            return
+        
+        # Convert mulaw to linear PCM for Whisper
+        audio_pcm = audioop.ulaw2lin(audio_mulaw, 2)  # 2 bytes per sample (16-bit)
+        
+        # Save to temp WAV file for Whisper
+        import wave
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            wav_path = f.name
+            with wave.open(f, 'wb') as wav:
+                wav.setnchannels(1)  # Mono
+                wav.setsampwidth(2)  # 16-bit
+                wav.setframerate(TWILIO_SAMPLE_RATE)
+                wav.writeframes(audio_pcm)
+        
+        # Transcribe
+        user_text = stt.transcribe_audio(audio_file=wav_path)
+        
+        # Cleanup temp file
+        try:
+            os.unlink(wav_path)
+        except:
+            pass
+        
+        if not user_text or len(user_text.strip()) < 2:
+            logger.debug("No meaningful speech detected")
+            return
+        
+        logger.info(f"User said: {user_text}")
+        
+        # Save to database
+        await db.add_transcript(
+            call_id=session.call_id,
+            speaker="user",
+            text=user_text
+        )
+        
+        # Get conversation history
+        conversation_history = await db.get_conversation_history(session.call_id, limit=6)
+        
+        # Add current user message
+        messages = conversation_history + [{"role": "user", "content": user_text}]
+        
+        # Get LLM response with safety prefix and guardrails
+        INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
+You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
+Never share private information. Stay professional and helpful.
+
+OUTBOUND CALL BEHAVIOR:
+- This is an OUTBOUND call - YOU called THEM, not the other way around
+- You already introduced yourself and asked if they have a moment
+- If they say "yes", "sure", "go ahead" - proceed with your pitch/purpose
+- If they say "no", "busy", "not now" - politely offer to call back: "No problem! When would be a better time to reach you?"
+- If they ask "who is this?" or "what's this about?" - briefly reintroduce and explain your purpose
+- Be respectful of their time - get to the point quickly
+- Don't keep asking "how can I help you" - YOU are calling with a specific purpose
+
+GUARDRAILS - STAY ON TOPIC:
+- You are a business assistant with a specific purpose defined in your system prompt
+- DO NOT answer general knowledge questions (geography, history, trivia, celebrities, pop culture, etc.)
+- DO NOT engage with random topics unrelated to your business purpose
+- If asked off-topic questions, politely redirect: "I'm here to help with [your business purpose]. How can I assist you with that?"
+- If user is clearly not interested or being disruptive, politely end the call
+- Stay focused on your goal and don't get sidetracked
+
+VOICE FORMATTING RULES (CRITICAL FOR TTS):
+- NEVER write times as digits like "12:00" or "1:00" - TTS will say "zero zero"
+- ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
+- Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
+- For half hours: "two thirty" not "2:30"
+- For quarter hours: "three fifteen" or "quarter past three" not "3:15"
+
+NUMBERS & SLASHES (IMPORTANT):
+- NEVER write "24/7" - say "twenty four seven" or "around the clock"
+- NEVER write "365" - say "three sixty five" or "all year"
+- NEVER write "50%" - say "fifty percent" or "half"
+- Write numbers as words for better pronunciation: "twenty four" not "24"
+
+CALL ENDING PROTOCOL:
+- When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"
+- After saying goodbye, the user will disconnect - DO NOT continue talking
+- If user says goodbye/bye/I have to go, acknowledge and end: "Thank you, goodbye!"
+- Do not keep the call going unnecessarily - respect the user's time"""
+        
+        base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
+        system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}"
+        temperature = session.agent_config.get("temperature", 0.7)
+        max_tokens = session.agent_config.get("max_tokens", 150)
+        
+        try:
+            ai_response = await llm.generate_response(
+                messages=messages,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            logger.info(f"AI response: {ai_response}")
+        except Exception as llm_error:
+            logger.error(f"⚠️  GROQ API FAILURE (not system issue): {llm_error}")
+            # Send error message to caller
+            error_message = "I'm having trouble connecting to my AI service right now. This is a Groq API issue. Please try again in a moment."
+            await send_ai_response(websocket, session.stream_sid, error_message, tts, db, session.call_id)
+            session.is_speaking = False
+            return
+        
+        # Save AI response to database
+        await db.add_transcript(
+            call_id=session.call_id,
+            speaker="agent",
+            text=ai_response
+        )
+        
+        # Generate speech and send to Twilio
+        session.is_speaking = True
+        session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
+        duration = await send_ai_response(websocket, session.stream_sid, ai_response, tts, db, session.call_id)
+        
+        # Keep is_speaking=True for the full audio duration + buffer
+        await asyncio.sleep(duration + 0.5)
+        session.is_speaking = False
+        
+    except Exception as e:
+        logger.error(f"Error processing user speech: {e}")
+
+
+async def send_ai_response(
+    websocket: WebSocket,
+    stream_sid: str,
+    text: str,
+    tts: TTSClient,
+    db: SupabaseDB,
+    call_id: str
+) -> float:
+    """Generate speech and send to Twilio. Returns audio duration in seconds."""
+    try:
+        # Generate speech
+        audio_file = tts.generate_speech(text)
+        
+        if not audio_file:
+            logger.error("TTS failed to generate audio")
+            return
+        
+        # Read WAV file
+        import wave
+        with wave.open(audio_file, 'rb') as wav:
+            # Get audio params
+            channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            framerate = wav.getframerate()
+            
+            # Read frames
+            audio_pcm = wav.readframes(wav.getnframes())
+        
+        # Cleanup temp file
+        try:
+            os.unlink(audio_file)
+        except:
+            pass
+        
+        # Convert to Twilio's format (8kHz mono mulaw)
+        # First, resample if needed
+        if framerate != TWILIO_SAMPLE_RATE:
+            # Simple resampling using audioop
+            audio_pcm, _ = audioop.ratecv(
+                audio_pcm,
+                sample_width,
+                channels,
+                framerate,
+                TWILIO_SAMPLE_RATE,
+                None
+            )
+        
+        # Convert stereo to mono if needed
+        if channels == 2:
+            audio_pcm = audioop.tomono(audio_pcm, sample_width, 1, 1)
+        
+        # Convert to mulaw (remove normalization - causes distortion)
+        audio_mulaw = audioop.lin2ulaw(audio_pcm, sample_width)
+        
+        # Send to Twilio in chunks
+        # Twilio expects chunks of 20ms worth of audio
+        chunk_size = int(TWILIO_SAMPLE_RATE * 0.02)  # 20ms = 160 bytes at 8kHz
+        
+        for i in range(0, len(audio_mulaw), chunk_size):
+            chunk = audio_mulaw[i:i + chunk_size]
+            payload = base64.b64encode(chunk).decode('utf-8')
+            
+            message = {
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {
+                    "payload": payload
+                }
+            }
+            
+            await websocket.send_text(json.dumps(message))
+            
+            # No delay - send as fast as possible, Twilio buffers it
+        
+        # Calculate audio duration (bytes / sample_rate)
+        audio_duration_seconds = len(audio_mulaw) / TWILIO_SAMPLE_RATE
+        
+        # Mark sent
+        logger.info(f"Sent AI speech to Twilio: {len(audio_mulaw)} bytes ({audio_duration_seconds:.1f}s)")
+        
+        return audio_duration_seconds
+        
+    except Exception as e:
+        logger.error(f"Error sending AI response: {e}")
+        return 0.0
+
+
+# Global ngrok URL storage
+ngrok_public_url = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services and start ngrok tunnel"""
+    global ngrok_public_url
+    
+    logger.info("Starting RelayX Voice Gateway...")
+    
+    # Start ngrok tunnel automatically
+    try:
+        import subprocess
+        import requests
+        import time
+        
+        logger.info("Starting ngrok tunnel on port 8001...")
+        
+        # Start ngrok with configuration to avoid browser warning
+        # Use --log=stdout --log-level=info for debugging if needed
+        subprocess.Popen(
+            ["ngrok", "http", "8001", "--log=stdout"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Wait for ngrok to start
+        time.sleep(3)
+        
+        # Get public URL from ngrok API
+        response = requests.get("http://localhost:4040/api/tunnels")
+        tunnels = response.json()["tunnels"]
+        
+        if tunnels:
+            ngrok_public_url = tunnels[0]["public_url"]
+            logger.info(f"✅ Ngrok tunnel ready: {ngrok_public_url}")
+        else:
+            logger.warning("⚠️ Ngrok started but no tunnels found")
+            
+    except Exception as e:
+        logger.warning(f"Could not start ngrok automatically: {e}")
+        logger.info("You can start ngrok manually: ngrok http 8001")
+    
+    # Pre-load AI models
+    try:
+        logger.info("Loading STT client...")
+        stt = get_stt_client()
+        logger.info("✅ STT ready")
+    except Exception as e:
+        logger.error(f"Failed to load STT: {e}")
+    
     try:
         logger.info("Loading TTS client...")
         tts = get_tts_client()
