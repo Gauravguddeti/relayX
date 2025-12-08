@@ -58,6 +58,12 @@ active_sessions = {}
 class CallSession:
     """Manages state for an active call"""
     
+    # Configurable timing parameters
+    SILENCE_THRESHOLD_MS = 2500  # Increased from 1200ms to give users more time to think
+    MIN_AUDIO_DURATION_MS = 1500  # Minimum audio before processing (increased from 1000ms)
+    SPEECH_ENERGY_THRESHOLD = 35  # Lowered from 30 to be less aggressive in detecting silence
+    MIN_SPEECH_ENERGY = 72  # Lowered from 75 to catch softer speech
+    
     def __init__(self, call_id: str, agent_id: str, stream_sid: str):
         self.call_id = call_id
         self.agent_id = agent_id
@@ -86,8 +92,10 @@ class CallSession:
         self.audio_buffer.clear()
         return data
     
-    def has_sufficient_audio(self, min_duration_ms: int = 1000) -> bool:
+    def has_sufficient_audio(self, min_duration_ms: Optional[int] = None) -> bool:
         """Check if buffer has enough audio (approx)"""
+        if min_duration_ms is None:
+            min_duration_ms = self.MIN_AUDIO_DURATION_MS
         # Rough estimate: mulaw is 1 byte per sample at 8kHz
         # So 1 second = 8000 bytes
         min_bytes = (TWILIO_SAMPLE_RATE * min_duration_ms) // 1000
@@ -110,9 +118,9 @@ class CallSession:
         if len(self.recent_energy) >= 5:
             self.baseline_energy = min(self.recent_energy)
         
-        # Silence = energy close to baseline (within 30 units)
-        # Speech = energy significantly above baseline (30+ units higher)
-        is_silence = energy < (self.baseline_energy + 30)
+        # Silence = energy close to baseline (within threshold units)
+        # Speech = energy significantly above baseline (threshold+ units higher)
+        is_silence = energy < (self.baseline_energy + self.SPEECH_ENERGY_THRESHOLD)
         
         return is_silence
     
@@ -554,7 +562,7 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                         logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
                     
                     # Process when sufficient audio + longer silence (allows multi-sentence responses)
-                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 1200:
+                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > session.SILENCE_THRESHOLD_MS:
                         logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
                         await process_user_speech(session, websocket, stt, llm, tts, db)
                 
@@ -612,8 +620,9 @@ async def process_user_speech(
         logger.debug(f"Audio energy: {avg_energy:.1f}")
         
         # Reject if energy too low (likely silence/background noise/echo)
-        # Set threshold carefully: echo ~65-75, real speech ~75-95
-        if avg_energy < 75:
+        # Set threshold carefully: echo ~65-75, real speech ~72-95
+        # Lowered threshold to catch softer speech patterns
+        if avg_energy < session.MIN_SPEECH_ENERGY:
             logger.info(f"Audio energy too low ({avg_energy:.1f}), likely background noise/echo - skipping transcription")
             return
         

@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Node modules
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+
+# Tests
+tests/
+
+# Scripts (not needed in container)
+scripts/
+
+# Environment files (use docker-compose env instead)
+.env
+.env.*
+
+# Database
+db/
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large files that shouldn't be in container
+*.mp3
+*.wav
+*.mp4
