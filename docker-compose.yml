@@ -11,8 +11,11 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USE_CLOUD_STT=${USE_CLOUD_STT}
+      - STT_PROVIDER=${STT_PROVIDER}
       - USE_CLOUD_TTS=${USE_CLOUD_TTS}
       - USE_CLOUD_LLM=${USE_CLOUD_LLM}
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
@@ -36,16 +39,17 @@ services:
     container_name: relayx-voice-gateway
     ports:
       - "8001:8001"
-      - "4040:4040"  # ngrok web interface
     environment:
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
       - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
-      - NGROK_AUTH_TOKEN=${NGROK_AUTH_TOKEN}
       - BACKEND_URL=http://backend:8000
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USE_CLOUD_STT=${USE_CLOUD_STT}
+      - STT_PROVIDER=${STT_PROVIDER}
       - USE_CLOUD_TTS=${USE_CLOUD_TTS}
       - USE_CLOUD_LLM=${USE_CLOUD_LLM}
       - SUPABASE_URL=${SUPABASE_URL}
@@ -57,6 +61,20 @@ services:
       - ./logs:/app/logs
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: relayx-ngrok
+    command: http voice-gateway:8001 --log stdout
+    ports:
+      - "4040:4040"  # ngrok web interface
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
+    depends_on:
+      - voice-gateway
     restart: unless-stopped
     networks:
       - relayx-network

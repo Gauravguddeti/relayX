@@ -6,6 +6,7 @@ Real-time pipeline: Audio → STT → LLM → TTS → Audio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 import asyncio
 import base64
 import json
@@ -58,11 +59,11 @@ active_sessions = {}
 class CallSession:
     """Manages state for an active call"""
     
-    # Configurable timing parameters
-    SILENCE_THRESHOLD_MS = 2500  # Increased from 1200ms to give users more time to think
-    MIN_AUDIO_DURATION_MS = 1500  # Minimum audio before processing (increased from 1000ms)
-    SPEECH_ENERGY_THRESHOLD = 35  # Lowered from 30 to be less aggressive in detecting silence
-    MIN_SPEECH_ENERGY = 72  # Lowered from 75 to catch softer speech
+    # Configurable timing parameters - OPTIMIZED FOR FAST NATURAL CONVERSATION
+    SILENCE_THRESHOLD_MS = 700  # 700ms of silence = user done speaking (fast turnaround)
+    MIN_AUDIO_DURATION_MS = 400  # Minimum 0.4s of audio before processing (catch quick responses)
+    SPEECH_ENERGY_THRESHOLD = 20  # Threshold for detecting speech vs silence (more sensitive)
+    MIN_SPEECH_ENERGY = 50  # Reject audio with energy < 50 (pure silence/echo is ~120-128)
     
     def __init__(self, call_id: str, agent_id: str, stream_sid: str):
         self.call_id = call_id
@@ -109,14 +110,22 @@ class CallSession:
         # Calculate energy (deviation from mulaw center 127)
         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
         
+        # Special case: Energy > 120 means mostly 0 or 255 bytes = silence/noise, NOT speech
+        if energy > 120:
+            return True  # This is silence, not speech
+        
         # Track recent energy levels
         self.recent_energy.append(energy)
         if len(self.recent_energy) > 10:
             self.recent_energy.pop(0)
         
-        # Adapt baseline to background noise (use minimum of recent samples)
+        # Adapt baseline to background noise (filter out 128 peaks which is pure silence)
         if len(self.recent_energy) >= 5:
-            self.baseline_energy = min(self.recent_energy)
+            # Filter out values >= 120 (near silence center) to prevent corruption
+            valid_energies = [e for e in self.recent_energy if e < 120]
+            if valid_energies:
+                self.baseline_energy = min(valid_energies)
+            # else keep current baseline if all samples are silence
         
         # Silence = energy close to baseline (within threshold units)
         # Speech = energy significantly above baseline (threshold+ units higher)
@@ -532,8 +541,8 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
                     duration = await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
                     
-                    # Keep is_speaking=True for the full audio duration + buffer
-                    await asyncio.sleep(duration + 0.5)
+                    # Keep is_speaking=True for audio duration + 1s buffer (Twilio network latency + audio buffering)
+                    await asyncio.sleep(duration + 1.0)
                     session.is_speaking = False
                 
                 elif event == "media":
@@ -568,8 +577,8 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
                         logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
                     
-                    # Process when sufficient audio + longer silence (allows multi-sentence responses with natural pauses)
-                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > 2500:
+                    # Process when sufficient audio + silence detected (fast response)
+                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > session.SILENCE_THRESHOLD_MS:
                         logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
                         await process_user_speech(session, websocket, stt, llm, tts, db)
                 
@@ -624,17 +633,27 @@ async def process_user_speech(
         
         # Check audio quality - calculate average energy
         avg_energy = sum(abs(b - 127) for b in audio_mulaw) / len(audio_mulaw)
-        logger.debug(f"Audio energy: {avg_energy:.1f}")
+        
+        # Check for pure silence (mulaw value 128 = silence)
+        silence_ratio = sum(1 for b in audio_mulaw if abs(b - 127) <= 1) / len(audio_mulaw)
+        
+        logger.debug(f"Audio energy: {avg_energy:.1f} | Silence ratio: {silence_ratio:.2%}")
+        
+        # Reject if mostly silence (>70% silence values)
+        if silence_ratio > 0.70:
+            logger.info(f"Audio is {silence_ratio:.1%} silence - skipping transcription")
+            return
         
         # Reject if energy too low (likely silence/background noise/echo)
-        # Set threshold carefully: echo ~65-75, real speech ~72-95
-        # Lowered threshold to catch softer speech patterns
         if avg_energy < session.MIN_SPEECH_ENERGY:
             logger.info(f"Audio energy too low ({avg_energy:.1f}), likely background noise/echo - skipping transcription")
             return
         
         # Convert mulaw to linear PCM for Whisper
         audio_pcm = audioop.ulaw2lin(audio_mulaw, 2)  # 2 bytes per sample (16-bit)
+        
+        # Upsample from 8kHz to 16kHz for better Whisper accuracy
+        audio_pcm_16k, _ = audioop.ratecv(audio_pcm, 2, 1, TWILIO_SAMPLE_RATE, 16000, None)
         
         # Save to temp WAV file for Whisper
         import wave
@@ -645,8 +664,8 @@ async def process_user_speech(
             with wave.open(f, 'wb') as wav:
                 wav.setnchannels(1)  # Mono
                 wav.setsampwidth(2)  # 16-bit
-                wav.setframerate(TWILIO_SAMPLE_RATE)
-                wav.writeframes(audio_pcm)
+                wav.setframerate(16000)  # 16kHz for better Whisper accuracy
+                wav.writeframes(audio_pcm_16k)
         
         # Transcribe
         user_text = stt.transcribe_audio(audio_file=wav_path)
@@ -694,20 +713,23 @@ NATURAL CONVERSATION FLOW (CRITICAL):
 - Accept partial responses naturally - "Yes", "Yeah", "Okay" are valid confirmations, don't challenge them
 - If user gives a short answer like "Yes" to a question asking for details, simply rephrase or move forward naturally
 - NEVER say "you repeated yourself" or "that's what I just asked" - it's rude and breaks rapport
-- NEVER point out supposed "misunderstandings" - just clarify naturally: "Got it. Could you share more details about that?"
-- If a response seems unclear, ask a follow-up question naturally without being pedantic
+- NEVER point out supposed "misunderstandings" or "deviations" - just continue naturally
+- NEVER say things like "It seems like there was a slight deviation" or "I was expecting a different response"
+- If a response seems unclear or garbled, ASSUME it was positive and continue. Say "Got it!" and move on.
+- If you genuinely can't understand, say "Sorry, I didn't catch that. Could you say that again?"
 - Keep the conversation flowing smoothly - don't be overly literal or robotic
 - Phone conversations naturally have brief responses - embrace them, don't fight them
+- Speech recognition is imperfect - if something sounds weird, assume the user said something reasonable and keep going
 
 BREVITY IS CRUCIAL (PHONE CALL ETIQUETTE):
-- Keep responses SHORT - aim for 2-3 sentences maximum per response
-- Long speeches (10+ seconds) make people tune out on phone calls
+- Keep responses VERY SHORT - aim for 1-2 sentences maximum per response (under 5 seconds of speech)
+- NEVER give responses longer than 3 sentences - people will hang up
+- Long speeches make people tune out on phone calls - keep it punchy
 - Break complex information into smaller chunks - ask a question, get feedback, continue
 - If user says "thank you" or gives minimal responses, they may be trying to end politely - wrap up quickly
-- Don't over-explain - give just enough information to move the conversation forward
-- After explaining something, ALWAYS ask a question to keep them engaged
+- Don't over-explain - give just enough information to move forward
+- After explaining something, ask ONE simple question to keep them engaged
 - Respect that their time is valuable - be concise and direct
-- Phone conversations naturally have brief responses - embrace them, don't fight them
 
 GUARDRAILS - STAY ON TOPIC:
 - You are a business assistant with a specific purpose defined in your system prompt
@@ -739,7 +761,7 @@ CALL ENDING PROTOCOL:
         base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
         system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}"
         temperature = session.agent_config.get("temperature", 0.7)
-        max_tokens = session.agent_config.get("max_tokens", 150)
+        max_tokens = 50  # Very short responses for fast conversation
         
         try:
             ai_response = await llm.generate_response(
@@ -769,8 +791,8 @@ CALL ENDING PROTOCOL:
         session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
         duration = await send_ai_response(websocket, session.stream_sid, ai_response, tts, db, session.call_id)
         
-        # Keep is_speaking=True for the full audio duration + buffer
-        await asyncio.sleep(duration + 0.5)
+        # Keep is_speaking=True for audio duration + 1s buffer (Twilio network latency + audio buffering)
+        await asyncio.sleep(duration + 1.0)
         session.is_speaking = False
         
     except Exception as e:
