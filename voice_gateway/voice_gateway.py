@@ -117,14 +117,21 @@ class CallSession:
         # Add chunk to VAD buffer
         self.vad_buffer.extend(audio_data)
         
-        # We need at least VAD_CHUNK_SIZE bytes to run Silero VAD
-        if len(self.vad_buffer) < self.VAD_CHUNK_SIZE:
+        # Silero VAD requires EXACT sample counts: 512 samples at 16kHz
+        # At 8kHz mulaw, that's 256 bytes (which becomes 512 samples after 2x resampling)
+        EXACT_VAD_BYTES = 256  # 256 bytes at 8kHz = 512 samples at 16kHz after resampling
+        
+        # We need at least EXACT_VAD_BYTES to run Silero VAD
+        if len(self.vad_buffer) < EXACT_VAD_BYTES:
             # Not enough data yet - assume silence for now
             return True
         
         try:
-            # Process the accumulated buffer with Silero VAD
-            vad_data = bytes(self.vad_buffer)
+            # Take exactly the right amount of bytes (256 at 8kHz)
+            # Keep any extra bytes in buffer for next call
+            vad_data = bytes(self.vad_buffer[:EXACT_VAD_BYTES])
+            # Remove processed bytes from buffer
+            self.vad_buffer = self.vad_buffer[EXACT_VAD_BYTES:]
             
             # Convert mulaw to linear PCM (required for VAD)
             pcm_data = audioop.ulaw2lin(vad_data, 2)  # 16-bit PCM
@@ -133,6 +140,7 @@ class CallSession:
             audio_array = np.frombuffer(pcm_data, dtype=np.int16)
             
             # Resample from 8kHz to 16kHz for Silero VAD
+            # 256 samples at 8kHz -> 512 samples at 16kHz (exactly what Silero needs!)
             audio_16k = np.interp(
                 np.linspace(0, len(audio_array), len(audio_array) * 2),
                 np.arange(len(audio_array)),
@@ -147,9 +155,6 @@ class CallSession:
             
             # Get speech probability from Silero VAD
             speech_prob = silero_vad_model(audio_tensor, VAD_SAMPLE_RATE).item()
-            
-            # Clear VAD buffer after processing
-            self.vad_buffer.clear()
             
             # Return True if silence (speech probability below threshold)
             is_silence = speech_prob < self.VAD_THRESHOLD
@@ -546,7 +551,7 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                         messages=[{"role": "user", "content": "Say your opening line now."}],
                         system_prompt=system_prompt,
                         temperature=agent.get("temperature", 0.7),
-                        max_tokens=60
+                        max_tokens=30  # ~12 words max
                     )
                     
                     # Clean meta-commentary
@@ -792,7 +797,7 @@ CALL ENDING PROTOCOL:
         base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
         system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}"
         temperature = session.agent_config.get("temperature", 0.7)
-        max_tokens = 50  # Very short responses for fast conversation
+        max_tokens = 30  # Ultra-short: ~12 words max for natural phone conversation
         
         try:
             ai_response = await llm.generate_response(
