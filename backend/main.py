@@ -467,6 +467,67 @@ async def root():
     }
 
 
+@app.post("/api/demo-call")
+async def create_demo_call(
+    request: dict,
+    background_tasks: BackgroundTasks,
+    db: SupabaseDB = Depends(get_db)
+):
+    """
+    Trigger a demo call for landing page
+    This uses the demo agent configured in environment
+    """
+    try:
+        name = request.get("name")
+        phone = request.get("phone")
+        
+        if not name or not phone:
+            raise HTTPException(status_code=422, detail="Name and phone are required")
+        
+        # Get landing page agent ID from environment
+        demo_agent_id = os.getenv("LANDING_PAGE_AGENT_ID")
+        if not demo_agent_id:
+            raise HTTPException(status_code=500, detail="Landing page agent not configured")
+        
+        # Validate agent
+        agent = await db.get_agent(demo_agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Demo agent not found")
+        
+        # Check Twilio
+        if not twilio_client:
+            raise HTTPException(status_code=500, detail="Twilio not configured")
+        
+        # Create call record
+        call_record = await db.create_call(
+            agent_id=demo_agent_id,
+            to_number=phone,
+            from_number=TWILIO_PHONE_NUMBER,
+            direction="outbound",
+            metadata={"demo": True, "name": name, "source": "landing_page"}
+        )
+        
+        call_id = call_record["id"]
+        
+        # Initiate call in background
+        background_tasks.add_task(
+            initiate_twilio_call,
+            call_id=call_id,
+            to_number=phone,
+            db=db
+        )
+        
+        logger.info(f"Demo call initiated: {call_id} to {phone} for {name}")
+        
+        return {"success": True, "call_id": call_id, "message": "Call initiated"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating demo call: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 async def health_check(db: SupabaseDB = Depends(get_db), llm: LLMClient = Depends(get_llm_client)):
     """Comprehensive health check"""

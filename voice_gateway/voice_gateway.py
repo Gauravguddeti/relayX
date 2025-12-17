@@ -16,6 +16,8 @@ from loguru import logger
 from datetime import datetime
 import audioop
 import tempfile
+import torch
+import numpy as np
 
 # Add shared modules to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -51,6 +53,10 @@ app.add_middleware(
 # Audio settings for Twilio
 TWILIO_SAMPLE_RATE = 8000  # Twilio uses 8kHz
 TWILIO_AUDIO_FORMAT = "mulaw"  # μ-law encoding
+VAD_SAMPLE_RATE = 16000  # Silero VAD expects 16kHz
+
+# Silero VAD model (loaded at startup)
+silero_vad_model = None
 
 # Call sessions storage
 active_sessions = {}
@@ -60,16 +66,18 @@ class CallSession:
     """Manages state for an active call"""
     
     # Configurable timing parameters - OPTIMIZED FOR FAST NATURAL CONVERSATION
-    SILENCE_THRESHOLD_MS = 700  # 700ms of silence = user done speaking (fast turnaround)
+    SILENCE_THRESHOLD_MS = 1200  # 1200ms of silence = user done speaking (prevents mid-sentence splits)
     MIN_AUDIO_DURATION_MS = 400  # Minimum 0.4s of audio before processing (catch quick responses)
-    SPEECH_ENERGY_THRESHOLD = 20  # Threshold for detecting speech vs silence (more sensitive)
+    VAD_THRESHOLD = 0.5  # Silero VAD speech probability threshold (0.0-1.0)
     MIN_SPEECH_ENERGY = 50  # Reject audio with energy < 50 (pure silence/echo is ~120-128)
+    VAD_CHUNK_SIZE = 512  # Minimum bytes needed for Silero VAD (about 64ms at 8kHz)
     
     def __init__(self, call_id: str, agent_id: str, stream_sid: str):
         self.call_id = call_id
         self.agent_id = agent_id
         self.stream_sid = stream_sid
         self.audio_buffer = bytearray()
+        self.vad_buffer = bytearray()  # Separate buffer for VAD processing
         self.is_speaking = False  # AI is currently speaking
         self.conversation_history = []
         self.agent_config = None
@@ -77,9 +85,6 @@ class CallSession:
         self.last_audio_time = datetime.now()
         self.silence_start = None
         self.created_at = datetime.now()
-        # Energy tracking for adaptive silence detection
-        self.recent_energy = []  # Last 10 chunks
-        self.baseline_energy = 70.0  # Will adapt to background noise
         
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
@@ -103,35 +108,61 @@ class CallSession:
         return len(self.audio_buffer) >= min_bytes
     
     def detect_silence(self, audio_data: bytes) -> bool:
-        """Adaptive energy-based silence detection for mulaw audio"""
-        if len(audio_data) == 0:
+        """Silero VAD-based speech detection with buffering"""
+        global silero_vad_model
+        
+        if len(audio_data) == 0 or silero_vad_model is None:
             return True
         
-        # Calculate energy (deviation from mulaw center 127)
-        energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
+        # Add chunk to VAD buffer
+        self.vad_buffer.extend(audio_data)
         
-        # Special case: Energy > 120 means mostly 0 or 255 bytes = silence/noise, NOT speech
-        if energy > 120:
-            return True  # This is silence, not speech
+        # We need at least VAD_CHUNK_SIZE bytes to run Silero VAD
+        if len(self.vad_buffer) < self.VAD_CHUNK_SIZE:
+            # Not enough data yet - assume silence for now
+            return True
         
-        # Track recent energy levels
-        self.recent_energy.append(energy)
-        if len(self.recent_energy) > 10:
-            self.recent_energy.pop(0)
-        
-        # Adapt baseline to background noise (filter out 128 peaks which is pure silence)
-        if len(self.recent_energy) >= 5:
-            # Filter out values >= 120 (near silence center) to prevent corruption
-            valid_energies = [e for e in self.recent_energy if e < 120]
-            if valid_energies:
-                self.baseline_energy = min(valid_energies)
-            # else keep current baseline if all samples are silence
-        
-        # Silence = energy close to baseline (within threshold units)
-        # Speech = energy significantly above baseline (threshold+ units higher)
-        is_silence = energy < (self.baseline_energy + self.SPEECH_ENERGY_THRESHOLD)
-        
-        return is_silence
+        try:
+            # Process the accumulated buffer with Silero VAD
+            vad_data = bytes(self.vad_buffer)
+            
+            # Convert mulaw to linear PCM (required for VAD)
+            pcm_data = audioop.ulaw2lin(vad_data, 2)  # 16-bit PCM
+            
+            # Convert to numpy array
+            audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+            
+            # Resample from 8kHz to 16kHz for Silero VAD
+            audio_16k = np.interp(
+                np.linspace(0, len(audio_array), len(audio_array) * 2),
+                np.arange(len(audio_array)),
+                audio_array
+            ).astype(np.int16)
+            
+            # Normalize to [-1, 1] float32
+            audio_float = audio_16k.astype(np.float32) / 32768.0
+            
+            # Convert to torch tensor
+            audio_tensor = torch.from_numpy(audio_float)
+            
+            # Get speech probability from Silero VAD
+            speech_prob = silero_vad_model(audio_tensor, VAD_SAMPLE_RATE).item()
+            
+            # Clear VAD buffer after processing
+            self.vad_buffer.clear()
+            
+            # Return True if silence (speech probability below threshold)
+            is_silence = speech_prob < self.VAD_THRESHOLD
+            
+            return is_silence
+            
+        except Exception as e:
+            logger.warning(f"Silero VAD error: {e}")
+            # Clear buffer on error to prevent repeated failures
+            self.vad_buffer.clear()
+            # Fallback: simple energy-based detection
+            energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
+            return energy > 120 or energy < 60
     
     def update_silence_state(self, is_silence: bool):
         """Track silence duration for VAD"""
@@ -573,9 +604,9 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     
                     # Log every second with silence status
                     if len(session.audio_buffer) % 8000 == 0:
-                        # Calculate energy for debug
+                        # Calculate energy and speech probability for debug
                         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
-                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | Baseline: {session.baseline_energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
+                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
                     
                     # Process when sufficient audio + silence detected (fast response)
                     if session.has_sufficient_audio() and session.get_silence_duration_ms() > session.SILENCE_THRESHOLD_MS:
@@ -894,7 +925,7 @@ ngrok_public_url = None
 @app.on_event("startup")
 async def startup_event():
     """Initialize services and start ngrok tunnel"""
-    global ngrok_public_url
+    global ngrok_public_url, silero_vad_model
     
     logger.info("Starting RelayX Voice Gateway...")
     
@@ -930,6 +961,22 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Could not start ngrok automatically: {e}")
         logger.info("You can start ngrok manually: ngrok http 8001")
+    
+    # Load Silero VAD model
+    try:
+        logger.info("Loading Silero VAD model...")
+        silero_vad_model, _ = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False,
+            onnx=False
+        )
+        silero_vad_model.eval()  # Set to evaluation mode
+        logger.info("✅ Silero VAD ready (smart speech detection enabled)")
+    except Exception as e:
+        logger.error(f"Failed to load Silero VAD: {e}")
+        logger.warning("Falling back to energy-based silence detection")
+        silero_vad_model = None
     
     # Pre-load AI models
     try:

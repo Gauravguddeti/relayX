@@ -17,9 +17,9 @@ class TTSClient:
         # Use Piper TTS - fast and lightweight
         logger.info("Loading Piper TTS...")
         
-        # Use ryan voice - clearest for phone (male voice)
-        # Alternative: lessac-medium (female), amy-medium (female)
-        voice_name = "en_US-ryan-medium"  # Clear male voice, best for phone quality
+        # Use American English voice - smoother and more natural sounding
+        # en_US-ryan-medium: Clear American male voice (best quality/naturalness)
+        voice_name = "en_US-ryan-medium"
         model_path = os.path.join(os.path.expanduser("~"), ".local", "share", "piper", f"{voice_name}.onnx")
         
         if not os.path.exists(model_path):
@@ -39,11 +39,11 @@ class TTSClient:
             except Exception as e:
                 logger.error(f"Failed to download model: {e}")
                 logger.info("Falling back to lower quality voice")
-                # Fallback to amy-low if high quality fails
-                voice_name = "en_US-amy-low"
+                # Fallback to low quality American voice if high quality fails
+                voice_name = "en_US-ryan-low"
                 model_path = os.path.join(os.path.expanduser("~"), ".local", "share", "piper", f"{voice_name}.onnx")
-                base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/low/{voice_name}.onnx"
-                config_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/low/{voice_name}.onnx.json"
+                base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/low/{voice_name}.onnx"
+                config_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/low/{voice_name}.onnx.json"
                 urllib.request.urlretrieve(base_url, model_path)
                 urllib.request.urlretrieve(config_url, f"{model_path}.json")
         

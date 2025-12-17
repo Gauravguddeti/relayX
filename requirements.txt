@@ -22,6 +22,10 @@ openai==2.8.1
 # Audio Processing (minimal)
 pydub==0.25.1
 numpy==1.26.3
+# Lightweight CPU-only PyTorch for Silero VAD (saves 2GB+ vs full version)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2
+silero-vad==5.1
 
 # Utilities
 python-dotenv==1.0.0

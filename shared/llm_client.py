@@ -36,7 +36,7 @@ class LLMClient:
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 150,
+        max_tokens: int = 60,
         stream: bool = False
     ) -> str:
         """
@@ -59,7 +59,10 @@ class LLMClient:
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
             
-            full_messages.extend(messages)
+            # Only send last 6 messages to prevent latency spikes as conversation grows
+            # This keeps context while maintaining fast response times (~250-500ms)
+            recent_messages = messages[-6:] if len(messages) > 6 else messages
+            full_messages.extend(recent_messages)
             
             if self.use_cloud:
                 # Use Groq API
