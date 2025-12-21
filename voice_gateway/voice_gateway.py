@@ -132,7 +132,8 @@ def classify_intent(text: str, time_since_ai_spoke_ms: float = 9999) -> tuple[st
     
     # ==================== NOISE DETECTION ====================
     # Single word that's likely STT noise - SKIP entirely
-    if len(words) == 1 and text_lower in NOISE_WORDS:
+    # "you" is ALWAYS noise as single word (common phone echo artifact)
+    if len(words) == 1 and (text_lower in NOISE_WORDS or text_lower == "you"):
         return ("noise", None)  # Will be skipped
     
     # Very short gibberish (1-2 chars) - likely noise
@@ -1078,19 +1079,27 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
             else:
                 intent_hint = ""
             
-            # PROFESSIONAL SALES AGENT PROMPT
-            SALES_AGENT_RULES = """CRITICAL RULES FOR PHONE SALES AGENT:
+            # PROFESSIONAL SALES AGENT PROMPT - Applied to ALL calls
+            SALES_AGENT_RULES = """CRITICAL RULES FOR PHONE CONVERSATION:
 
-1. NEVER REPEAT YOURSELF - Check conversation history! If you already asked a question, move on
-2. UNDERSTAND SLANG - "I'm down", "down for that", "bet", "sounds good" = YES/INTERESTED
-3. NUMBERS - "4-5" or "four to five" means a SMALL number (4-5), NOT 400-500
-4. LISTEN TO CONTEXT - If user says "I'm down for that", they're AGREEING with what you proposed
-5. BE PROFESSIONAL - Respect their time on mobile
-6. CONCISE - 1-2 sentences max per response
-7. NATURAL SPEECH - Use contractions: "I'm", "you're", "that's"
-8. IF CONFUSED - Clarify briefly, don't over-explain
-9. ADVANCE CONVERSATION - Each response should progress toward booking/closing
-10. DON'T LOOP - If conversation seems stuck, change approach
+1. NEVER REPEAT - If you already asked something, MOVE FORWARD. Check the conversation history!
+2. ONE QUESTION per response - Never combine multiple questions
+3. UNDERSTAND SLANG:
+   - "I'm down" / "down for that" / "bet" = YES, they agree
+   - "sounds good" / "cool" / "awesome" = positive response
+   - "yeah" / "yep" / "sure" = affirmative
+4. UNDERSTAND NUMBERS:
+   - "4-5" or "four to five" = the number 4 or 5 (SMALL)
+   - NEVER interpret "4-5" as "400-500"
+5. FOLLOW CONTEXT:
+   - If user answered a question, move to the NEXT step
+   - Don't re-ask what they already answered
+6. MAX 15 WORDS per response - Keep it short!
+7. NATURAL SPEECH - Use "I'm", "you're", "that's", "cool", "got it"
+8. ADVANCE THE CONVERSATION - Each response moves toward the goal
+9. SCHEDULING FLOW:
+   - First get DAY → Then get TIME → Then get EMAIL
+   - Never skip steps!
 """
             base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful assistant.")
             

@@ -1,4 +1,18 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: relayx-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+      - voice-gateway
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
   backend:
     build:
       context: .
