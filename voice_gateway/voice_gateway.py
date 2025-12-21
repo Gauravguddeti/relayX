@@ -635,8 +635,88 @@ Return ONLY valid JSON (no other text):
         
         logger.info(f"✅ Call analysis saved for {call_id}: {analysis_data.get('outcome')}")
         
+        # Auto-schedule booking if user is interested
+        outcome = analysis_data.get("outcome", "")
+        if outcome == "interested":
+            await auto_schedule_booking(call_id, transcript)
+        
     except Exception as e:
         logger.error(f"Error generating call analysis for {call_id}: {e}")
+
+
+async def auto_schedule_booking(call_id: str, transcript: str):
+    """
+    Automatically create a Cal.com booking and send SMS when user shows interest.
+    """
+    try:
+        logger.info(f"🗓️ Auto-scheduling booking for interested customer in call {call_id}")
+        
+        # Get call details from database
+        call_details = await db.get_call(call_id)
+        if not call_details:
+            logger.error(f"Could not find call details for {call_id}")
+            return
+        
+        phone_number = call_details.get("to_number")
+        if not phone_number:
+            logger.error(f"No phone number found for call {call_id}")
+            return
+        
+        # Create booking link via backend API
+        import httpx
+        async with httpx.AsyncClient() as client:
+            # Get default event type (30 min meeting)
+            cal_status = await client.get("http://backend:8000/cal/status")
+            if cal_status.status_code != 200:
+                logger.error("Cal.com not configured")
+                return
+            
+            cal_data = cal_status.json()
+            event_types = cal_data.get("event_types", [])
+            if not event_types:
+                logger.error("No event types available")
+                return
+            
+            # Find 30 min or first available event type
+            event_type = next(
+                (et for et in event_types if "30" in et.get("title", "")),
+                event_types[0]
+            )
+            
+            # Create booking link
+            link_response = await client.post(
+                "http://backend:8000/cal/create-link",
+                json={
+                    "event_type_slug": event_type["slug"],
+                    "username": cal_data["user"]["username"]
+                }
+            )
+            
+            if link_response.status_code != 200:
+                logger.error(f"Failed to create booking link: {link_response.text}")
+                return
+            
+            booking_data = link_response.json()
+            booking_url = booking_data.get("booking_url")
+            
+            # Send SMS with booking link
+            sms_response = await client.post(
+                "http://backend:8000/cal/send-link-sms",
+                json={
+                    "phone": phone_number,
+                    "name": "Interested Customer",
+                    "email": "customer@example.com",
+                    "booking_url": booking_url
+                }
+            )
+            
+            if sms_response.status_code == 200:
+                logger.info(f"✅ Booking link sent via SMS to {phone_number}")
+            else:
+                logger.error(f"Failed to send SMS: {sms_response.text}")
+                
+    except Exception as e:
+        logger.error(f"Error auto-scheduling booking: {e}")
 
 
 @app.post("/callbacks/status/{call_id}")

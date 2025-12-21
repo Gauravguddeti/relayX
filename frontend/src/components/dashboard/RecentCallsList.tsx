@@ -25,14 +25,16 @@ export default function RecentCallsList() {
 
   async function fetchCalls() {
     try {
-      const response = await fetch('/api/calls?limit=10');
+      const response = await fetch('/calls?limit=10');
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
+        setCalls([]);
+        setLoading(false);
         return;
       }
       const data = await response.json();
-      const calls = Array.isArray(data) ? data : [];
-      setCalls(calls);
+      const callsList = Array.isArray(data) ? data : [];
+      setCalls(callsList);
     } catch (error) {
       console.error('Failed to fetch calls:', error);
     } finally {

@@ -30,25 +30,42 @@ export default function KnowledgeBase() {
 
   async function fetchAgent() {
     try {
-      const response = await fetch('/api/agents');
+      const response = await fetch('/agents');
+      if (!response.ok) {
+        console.error('Failed to fetch agents:', response.status);
+        setLoading(false);
+        return;
+      }
       const agents = await response.json();
-      if (agents.length > 0) {
-        setAgentId(agents[0].id);
-        fetchKnowledge(agents[0].id);
+      const agentList = Array.isArray(agents) ? agents : [];
+      if (agentList.length > 0) {
+        setAgentId(agentList[0].id);
+        fetchKnowledge(agentList[0].id);
+      } else {
+        setLoading(false);
       }
     } catch (error) {
       console.error('Failed to fetch agent:', error);
+      setKnowledge([]);
       setLoading(false);
     }
   }
 
   async function fetchKnowledge(id: string) {
     try {
-      const response = await fetch(`/api/agents/${id}/knowledge`);
+      const response = await fetch(`/agents/${id}/knowledge`);
+      if (!response.ok) {
+        console.error('Failed to fetch knowledge:', response.status);
+        setKnowledge([]);
+        setLoading(false);
+        return;
+      }
       const data = await response.json();
-      setKnowledge(data);
+      const knowledgeList = Array.isArray(data) ? data : [];
+      setKnowledge(knowledgeList);
     } catch (error) {
       console.error('Failed to fetch knowledge:', error);
+      setKnowledge([]);
     } finally {
       setLoading(false);
     }
@@ -59,7 +76,7 @@ export default function KnowledgeBase() {
 
     setUrlLoading(true);
     try {
-      const response = await fetch('/api/knowledge/from-url', {
+      const response = await fetch('/knowledge/from-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +109,7 @@ export default function KnowledgeBase() {
     formData.append('file', files[0]);
 
     try {
-      const response = await fetch('/api/knowledge/upload', {
+      const response = await fetch('/knowledge/upload', {
         method: 'POST',
         body: formData,
       });
@@ -116,7 +133,7 @@ export default function KnowledgeBase() {
     if (!confirm('Are you sure you want to delete this knowledge item?')) return;
 
     try {
-      const response = await fetch(`/api/knowledge/${id}`, {
+      const response = await fetch(`/knowledge/${id}`, {
         method: 'DELETE',
       });
 

@@ -4,10 +4,13 @@ import ProtectedRoute from './components/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
+import Calls from './pages/Calls';
 import CallDetails from './pages/CallDetails';
+import Contacts from './pages/Contacts';
 import BotSettings from './pages/BotSettings';
 import KnowledgeBase from './pages/KnowledgeBase';
 import TestBot from './pages/TestBot';
+import CalIntegration from './pages/CalIntegration';
 
 function App() {
   return (
@@ -25,10 +28,26 @@ function App() {
             }
           />
           <Route
+            path="/dashboard/calls"
+            element={
+              <ProtectedRoute>
+                <Calls />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/dashboard/calls/:callId"
             element={
               <ProtectedRoute>
                 <CallDetails />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/contacts"
+            element={
+              <ProtectedRoute>
+                <Contacts />
               </ProtectedRoute>
             }
           />
@@ -53,6 +72,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <TestBot />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/cal"
+            element={
+              <ProtectedRoute>
+                <CalIntegration />
               </ProtectedRoute>
             }
           />

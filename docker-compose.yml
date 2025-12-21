@@ -37,6 +37,8 @@ services:
       - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
       - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
       - LANDING_PAGE_AGENT_ID=${LANDING_PAGE_AGENT_ID}
+      - CAL_API_KEY=${CAL_API_KEY}
+      - FISH_AUDIO_API_KEY=${FISH_AUDIO_API_KEY}
     volumes:
       - ./backend:/app
       - ./shared:/app/shared

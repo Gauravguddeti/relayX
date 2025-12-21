@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Phone, TrendingUp, Clock, CheckCircle, XCircle, PhoneCall } from 'lucide-react';
+import { Phone, TrendingUp, Clock, CheckCircle, XCircle, PhoneCall, Plus } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import StatCard from '../components/dashboard/StatCard';
 import RecentCallsList from '../components/dashboard/RecentCallsList';
+import UpcomingEvents from '../components/dashboard/UpcomingEvents';
+import CalendarWidget from '../components/dashboard/CalendarWidget';
+import NewCallModal from '../components/dashboard/NewCallModal';
 
 interface DashboardStats {
   totalCalls: number;
@@ -21,6 +24,7 @@ export default function Dashboard() {
     todayCalls: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [showNewCallModal, setShowNewCallModal] = useState(false);
 
   useEffect(() => {
     fetchDashboardStats();
@@ -28,10 +32,12 @@ export default function Dashboard() {
 
   async function fetchDashboardStats() {
     try {
+      setLoading(true);
       // Fetch recent calls (last 24h)
-      const response = await fetch('/api/calls?limit=100');
+      const response = await fetch('/calls?limit=100');
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
+        setLoading(false);
         return;
       }
       const data = await response.json();
@@ -55,7 +61,7 @@ export default function Dashboard() {
 
       for (const call of completed) {
         try {
-          const analysisRes = await fetch(`/api/calls/${call.id}/analysis`);
+          const analysisRes = await fetch(`/calls/${call.id}/analysis`);
           if (analysisRes.ok) {
             const analysis = await analysisRes.json();
             if (analysis.outcome?.toLowerCase().includes('interested')) interestedCount++;
@@ -83,14 +89,31 @@ export default function Dashboard() {
       setLoading(false);
     }
   }
-
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </DashboardLayout>
+    );
+  }
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">Welcome back! Here's how your assistant is performing.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-600 mt-1">Welcome back! Here's how your assistant is performing.</p>
+          </div>
+          <button
+            onClick={() => setShowNewCallModal(true)}
+            className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            <span>New Call</span>
+          </button>
         </div>
 
         {/* Stats Grid */}
@@ -125,15 +148,38 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Recent Calls */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Recent Calls</h2>
-            <p className="text-sm text-gray-600 mt-1">View and analyze your recent conversations</p>
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Recent Calls - Takes 2 columns */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-lg shadow">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-semibold text-gray-900">Recent Calls</h2>
+                <p className="text-sm text-gray-600 mt-1">View and analyze your recent conversations</p>
+              </div>
+              <RecentCallsList />
+            </div>
           </div>
-          <RecentCallsList />
+
+          {/* Sidebar - Takes 1 column */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Upcoming Events */}
+            <UpcomingEvents />
+            
+            {/* Cal.com Calendar Widget */}
+            <CalendarWidget />
+          </div>
         </div>
       </div>
+
+      {/* New Call Modal */}
+      <NewCallModal
+        isOpen={showNewCallModal}
+        onClose={() => setShowNewCallModal(false)}
+        onSuccess={() => {
+          fetchDashboardStats();
+        }}
+      />
     </DashboardLayout>
   );
 }

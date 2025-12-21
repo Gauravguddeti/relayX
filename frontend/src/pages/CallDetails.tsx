@@ -46,13 +46,13 @@ export default function CallDetails() {
   async function fetchCallDetails() {
     try {
       // Fetch call data
-      const callRes = await fetch(`/api/calls/${callId}`);
+      const callRes = await fetch(`/calls/${callId}`);
       const callData = await callRes.json();
       setCall(callData);
 
       // Fetch analysis
       try {
-        const analysisRes = await fetch(`/api/calls/${callId}/analysis`);
+        const analysisRes = await fetch(`/calls/${callId}/analysis`);
         if (analysisRes.ok) {
           const analysisData = await analysisRes.json();
           setAnalysis(analysisData);
@@ -62,15 +62,15 @@ export default function CallDetails() {
       }
 
       // Fetch transcripts
-      const transcriptRes = await fetch(`/api/calls/${callId}/transcripts`);
+      const transcriptRes = await fetch(`/calls/${callId}/transcripts`);
       const transcriptData = await transcriptRes.json();
       setTranscripts(transcriptData);
 
       // Check for recording
       try {
-        const recordingRes = await fetch(`/api/calls/${callId}/recording`, { method: 'HEAD' });
+        const recordingRes = await fetch(`/calls/${callId}/recording`, { method: 'HEAD' });
         if (recordingRes.ok) {
-          setAudioUrl(`/api/calls/${callId}/recording`);
+          setAudioUrl(`/calls/${callId}/recording`);
         }
       } catch (e) {
         console.log('Recording not available');

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Phone, Settings, BookOpen, TestTube, LogOut } from 'lucide-react';
+import { Home, Phone, Settings, BookOpen, TestTube, Users, LogOut, Calendar } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface DashboardLayoutProps {
@@ -15,9 +15,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: Home },
     { name: 'Calls', path: '/dashboard/calls', icon: Phone },
+    { name: 'Contacts', path: '/dashboard/contacts', icon: Users },
     { name: 'My Bot', path: '/dashboard/bot', icon: Settings },
     { name: 'Knowledge Base', path: '/dashboard/knowledge', icon: BookOpen },
     { name: 'Test Bot', path: '/dashboard/test', icon: TestTube },
+    { name: 'Cal.com', path: '/dashboard/cal', icon: Calendar },
   ];
 
   const handleLogout = () => {

@@ -26,7 +26,7 @@ export default function CallbackModal({ isOpen, onClose }: CallbackModalProps) {
       }
 
       // Call backend API to trigger demo call
-      const response = await fetch('/api/demo-call', {
+      const response = await fetch('/demo-call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

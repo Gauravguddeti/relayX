@@ -30,9 +30,10 @@ export default function BotSettings() {
 
   // Editable fields
   const [botName, setBotName] = useState('');
-  const [businessType, setBusinessType] = useState('');
-  const [greeting, setGreeting] = useState('');
-  const [businessDescription, setBusinessDescription] = useState('');
+  const [businessType, setBusinessType] = useState('services');
+  const [greeting, setGreeting] = useState('Hi! Thanks for calling. How can I help you today?');
+  const [businessDescription, setBusinessDescription] = useState('We provide professional services to help businesses grow and succeed.');
+  const [systemPrompt, setSystemPrompt] = useState('');
 
   useEffect(() => {
     fetchAgent();
@@ -40,11 +41,17 @@ export default function BotSettings() {
 
   async function fetchAgent() {
     try {
-      const response = await fetch('/api/agents');
+      const response = await fetch('/agents');
+      if (!response.ok) {
+        console.error('Failed to fetch agents:', response.status);
+        setLoading(false);
+        return;
+      }
       const agents = await response.json();
+      const agentList = Array.isArray(agents) ? agents : [];
       
-      if (agents.length > 0) {
-        const userAgent = agents[0]; // Get first agent (one bot per user)
+      if (agentList.length > 0) {
+        const userAgent = agentList[0]; // Get first agent (one bot per user)
         setAgent(userAgent);
         setBotName(userAgent.name);
         
@@ -61,23 +68,28 @@ export default function BotSettings() {
 
   function parsePromptFields(prompt: string) {
     // Try to extract greeting and business description from existing prompt
-    // This is a simple parser - adjust based on your actual prompt format
     const lines = prompt.split('\n');
     let foundGreeting = '';
     let foundDescription = '';
+    let foundSystemPrompt = '';
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (line.includes('greeting') || line.includes('introduce')) {
+      if (line.includes('GREETING:')) {
         foundGreeting = lines[i + 1]?.trim() || '';
       }
-      if (line.includes('business') || line.includes('company')) {
+      if (line.includes('ABOUT THE BUSINESS:')) {
         foundDescription = lines[i + 1]?.trim() || '';
+      }
+      if (line.includes('CUSTOM INSTRUCTIONS:')) {
+        foundSystemPrompt = lines[i + 1]?.trim() || '';
       }
     }
 
-    setGreeting(foundGreeting || "Hi! Thanks for calling. How can I help you today?");
-    setBusinessDescription(foundDescription || "We help businesses grow with AI-powered calling solutions.");
+    // Only override defaults if we found actual content
+    if (foundGreeting) setGreeting(foundGreeting);
+    if (foundDescription) setBusinessDescription(foundDescription);
+    if (foundSystemPrompt) setSystemPrompt(foundSystemPrompt);
   }
 
   async function handleSave() {
@@ -90,7 +102,7 @@ export default function BotSettings() {
       // Build updated prompt
       const updatedPrompt = buildSystemPrompt();
 
-      const response = await fetch(`/api/agents/${agent.id}`, {
+      const response = await fetch(`/agents/${agent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -114,25 +126,100 @@ export default function BotSettings() {
   }
 
   function buildSystemPrompt(): string {
-    // Build a clean system prompt from the user's inputs
-    return `You are ${botName}, an AI assistant helping customers.
+    // Build a detailed, professional system prompt that automatically uses assistant name and company details
+    const companyName = businessDescription.split('.')[0] || 'our company';
+    
+    let prompt = `You are ${botName}, an AI-powered voice assistant representing ${companyName}.
 
-GREETING:
+IDENTITY & ROLE:
+- Your name is ${botName}
+- You are a professional, knowledgeable representative
+- You speak naturally and conversationally, like a real person
+- You're calling on behalf of: ${businessDescription}
+
+GREETING & INTRODUCTION:
 ${greeting}
 
-ABOUT THE BUSINESS:
-${businessDescription}
+Then introduce yourself: "My name is ${botName}, and I'm reaching out from ${companyName}."
+
+CONVERSATION OBJECTIVES:
+1. Understand the customer's needs and pain points
+2. Explain how our services/products can help them
+3. Build rapport and trust through active listening
+4. Qualify their interest level (hot, warm, or cold lead)
+5. Schedule a follow-up or close the deal if appropriate
+
+BUSINESS CONTEXT:
+Industry: ${BUSINESS_TYPES.find(t => t.value === businessType)?.label || 'Professional Services'}
+What we do: ${businessDescription}
 
 CONVERSATION GUIDELINES:
-- Be friendly, professional, and helpful
-- Listen carefully to what the customer needs
-- Ask clarifying questions when needed
-- Keep responses concise and clear
-- Always aim to provide value and build trust
 
-BUSINESS TYPE: ${businessType || 'General'}
+**Tone & Style:**
+- Friendly yet professional
+- Confident but not pushy
+- Empathetic and understanding
+- Natural and conversational (avoid robotic responses)
+- Use "we" and "our" when referring to the company
 
-Remember: Your goal is to help customers and represent the business professionally.`;
+**Active Listening:**
+- Let the customer speak without interruption
+- Acknowledge their concerns with phrases like "I understand" or "That makes sense"
+- Ask clarifying questions to show engagement
+- Paraphrase their needs to confirm understanding
+
+**Handling Objections:**
+- Stay calm and professional
+- Acknowledge their concerns: "I completely understand where you're coming from"
+- Provide value-focused responses
+- If they're not interested, thank them politely and ask if you can follow up later
+- Never argue or pressure
+
+**Interest Assessment:**
+- HOT LEAD: Actively asking questions, wants pricing, ready to schedule
+- WARM LEAD: Interested but needs more information or time to think
+- COLD LEAD: Not interested, wrong timing, or not a fit
+
+**Call Flow:**
+1. **Opening** (5-10 sec): Warm greeting + brief introduction
+2. **Discovery** (30-60 sec): Ask about their current situation/needs
+3. **Value Proposition** (45-60 sec): Explain how you can help
+4. **Engagement** (60-90 sec): Answer questions, address concerns
+5. **Closing** (15-30 sec): Next steps (meeting, demo, callback, or polite exit)
+
+**Key Phrases to Use:**
+- "I appreciate your time today"
+- "Would you be open to hearing about..."
+- "Many of our clients had similar concerns before they saw..."
+- "What matters most to you when it comes to [relevant topic]?"
+- "Does that align with what you're looking for?"
+
+**What NOT to Do:**
+- Don't speak too fast or use jargon
+- Don't interrupt the customer
+- Don't be pushy or aggressive
+- Don't lie or make promises you can't keep
+- Don't argue if they say no
+- Don't overshare personal information
+
+**Ending the Call:**
+- If interested: "Great! Let me connect you with our team to discuss next steps. Would [specific time] work for you?"
+- If not interested: "I completely understand. Thank you for your time today. May I reach out in a few months to see if anything has changed?"
+- Always end warmly: "Have a great day!"
+
+**Special Instructions:**
+- Keep total call duration between 2-4 minutes unless customer wants longer
+- If customer asks technical questions you can't answer, offer to have a specialist call back
+- Take notes mentally about key pain points to pass to the team`;
+
+    // Add custom instructions if provided
+    if (systemPrompt.trim()) {
+      prompt += `\n\n===ADDITIONAL CUSTOM INSTRUCTIONS===\n${systemPrompt}`;
+    }
+
+    prompt += `\n\nRemember: Your goal is to help customers and represent ${companyName} professionally. You are ${botName}, and you always introduce yourself by name.`;
+    
+    return prompt;
   }
 
   if (loading) {
@@ -247,6 +334,23 @@ Remember: Your goal is to help customers and represent the business professional
             />
             <p className="text-sm text-gray-500 mt-1">
               The assistant uses this to answer questions about your business
+            </p>
+          </div>
+
+          {/* System Prompt (Optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Custom Instructions (Optional)
+            </label>
+            <textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              rows={4}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Add any special instructions or guidelines for your assistant (leave empty for default behavior)..."
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Optional: Add specific rules, tone guidelines, or special handling instructions
             </p>
           </div>
 

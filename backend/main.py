@@ -25,6 +25,11 @@ from dotenv import load_dotenv
 import subprocess
 import httpx
 
+# Import authentication - TEMPORARILY DISABLED
+# from auth import get_current_user_id
+# import auth_routes
+import cal_routes
+
 # Load environment variables
 load_dotenv()
 
@@ -37,6 +42,13 @@ app = FastAPI(
     description="Backend for AI-powered outbound calling system",
     version="1.0.0"
 )
+
+# Include authentication routes - TEMPORARILY DISABLED
+# auth_routes.init_supabase(None)  # Will be set after db initialization
+# app.include_router(auth_routes.router)
+
+# Include Cal.com routes
+app.include_router(cal_routes.router)
 
 # Mount static files for dashboard
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
@@ -589,24 +601,37 @@ async def create_agent(agent: AgentCreate, db: SupabaseDB = Depends(get_db)):
 
 
 @app.get("/agents", response_model=List[dict])
-async def list_agents(is_active: Optional[bool] = None, db: SupabaseDB = Depends(get_db)):
-    """List all agents"""
+async def list_agents(
+    is_active: Optional[bool] = None,
+    db: SupabaseDB = Depends(get_db)
+):
+    """List user's agents"""
+    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
-        agents = await db.list_agents(is_active=is_active)
-        return agents
+        # Filter agents by user_id
+        query = db.client.table("agents").select("*").eq("user_id", user_id)
+        if is_active is not None:
+            query = query.eq("is_active", is_active)
+        
+        result = query.execute()
+        return result.data or []
     except Exception as e:
         logger.error(f"Error listing agents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/agents/{agent_id}", response_model=dict)
-async def get_agent(agent_id: str, db: SupabaseDB = Depends(get_db)):
-    """Get agent by ID"""
+async def get_agent(
+    agent_id: str,
+    db: SupabaseDB = Depends(get_db)
+):
+    """Get agent by ID (user's agents only)"""
+    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
-        agent = await db.get_agent(agent_id)
-        if not agent:
+        result = db.client.table("agents").select("*").eq("id", agent_id).eq("user_id", user_id).execute()
+        if not result.data:
             raise HTTPException(status_code=404, detail="Agent not found")
-        return agent
+        return result.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -616,9 +641,19 @@ async def get_agent(agent_id: str, db: SupabaseDB = Depends(get_db)):
 
 @app.patch("/agents/{agent_id}", response_model=dict)
 @app.put("/agents/{agent_id}", response_model=dict)
-async def update_agent(agent_id: str, updates: AgentUpdate, db: SupabaseDB = Depends(get_db)):
-    """Update agent prompt and configuration"""
+async def update_agent(
+    agent_id: str,
+    updates: AgentUpdate,
+    db: SupabaseDB = Depends(get_db)
+):
+    """Update agent prompt and configuration (user's agents only)"""
+    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
+        # Verify agent belongs to user
+        agent_result = db.client.table("agents").select("id").eq("id", agent_id).eq("user_id", user_id).execute()
+        if not agent_result.data:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
         # Filter out None values
         update_data = {k: v for k, v in updates.dict().items() if v is not None}
         
@@ -758,13 +793,17 @@ async def initiate_twilio_call(call_id: str, to_number: str, db: SupabaseDB):
 
 
 @app.get("/calls/{call_id}", response_model=dict)
-async def get_call(call_id: str, db: SupabaseDB = Depends(get_db)):
-    """Get call details by ID"""
+async def get_call(
+    call_id: str,
+    db: SupabaseDB = Depends(get_db)
+):
+    """Get call details by ID (user's calls only)"""
+    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
-        call = await db.get_call(call_id)
-        if not call:
+        result = db.client.table("calls").select("*").eq("id", call_id).eq("user_id", user_id).execute()
+        if not result.data:
             raise HTTPException(status_code=404, detail="Call not found")
-        return call
+        return result.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -779,10 +818,17 @@ async def list_calls(
     limit: int = 50,
     db: SupabaseDB = Depends(get_db)
 ):
-    """List calls with optional filters"""
+    """List calls with optional filters (user's calls only)"""
+    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
-        calls = await db.list_calls(agent_id=agent_id, status=status, limit=limit)
-        return calls
+        query = db.client.table("calls").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit)
+        if agent_id:
+            query = query.eq("agent_id", agent_id)
+        if status:
+            query = query.eq("status", status)
+        
+        result = query.execute()
+        return result.data or []
     except Exception as e:
         logger.error(f"Error listing calls: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -938,6 +984,11 @@ async def startup_event():
         db = get_db()
         agents = await db.list_agents()
         logger.info(f"Database connected. Found {len(agents)} agents.")
+        
+        # Initialize auth routes with supabase client
+        from shared.database import supabase
+        auth_routes.init_supabase(supabase)
+        logger.info("Auth routes initialized")
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
     
