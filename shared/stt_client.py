@@ -63,7 +63,7 @@ class STTClient:
         Transcribe audio to text
         
         Args:
-            audio_data: Raw audio bytes (mulaw/pcm)
+            audio_data: Raw audio bytes (WAV format for in-memory processing)
             audio_file: Path to audio file
             language: Language code (default: en)
         
@@ -71,15 +71,19 @@ class STTClient:
             Transcribed text or None
         """
         try:
-            # If audio_data provided, save to temp file
+            # IN-MEMORY PROCESSING: No temp files if audio_data provided
             temp_file = None
-            if audio_data:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    f.write(audio_data)
-                    temp_file = f.name
-                    audio_file = temp_file
+            audio_bytes = None
             
-            if not audio_file:
+            if audio_data and not audio_file:
+                # Use audio_data directly (already in WAV format from voice gateway)
+                audio_bytes = audio_data
+            elif audio_file:
+                # Read from file if provided
+                with open(audio_file, "rb") as f:
+                    audio_bytes = f.read()
+            
+            if not audio_bytes and not audio_file:
                 logger.error("No audio data or file provided")
                 return None
             
@@ -87,7 +91,7 @@ class STTClient:
             if self.use_cloud:
                 if self.stt_provider == "deepgram":
                     # Deepgram API - Fast and accurate for phone calls
-                    logger.debug(f"Transcribing with Deepgram: {audio_file}")
+                    logger.debug(f"Transcribing with Deepgram (in-memory)")
                     
                     headers = {
                         "Authorization": f"Token {self.deepgram_key}",
@@ -107,14 +111,14 @@ class STTClient:
                         "sample_rate": "16000"  # Match our upsampled rate
                     }
                     
-                    with open(audio_file, "rb") as f:
-                        response = requests.post(
-                            self.deepgram_url,
-                            headers=headers,
-                            params=params,
-                            data=f.read(),
-                            timeout=10
-                        )
+                    # Send audio bytes directly (no file I/O)
+                    response = requests.post(
+                        self.deepgram_url,
+                        headers=headers,
+                        params=params,
+                        data=audio_bytes,
+                        timeout=10
+                    )
                     
                     if response.status_code != 200:
                         logger.error(f"Deepgram error: {response.status_code} - {response.text}")
@@ -183,18 +187,27 @@ class STTClient:
                         logger.error("AssemblyAI transcription timeout")
                         return None
                 else:
-                    # Groq Whisper API
-                    logger.debug(f"Transcribing with Groq API: {audio_file}")
-                    with open(audio_file, "rb") as file:
-                        transcription = self.client.audio.transcriptions.create(
-                            file=(os.path.basename(audio_file), file.read()),
-                            model="whisper-large-v3",
-                            language=language,
-                            response_format="text"
-                        )
+                    # Groq Whisper API (IN-MEMORY)
+                    logger.debug(f"Transcribing with Groq API (in-memory)")
+                    # Send audio bytes directly without file
+                    # CRITICAL: Detailed prompt helps Whisper with phone call audio quality
+                    transcription = self.client.audio.transcriptions.create(
+                        file=("audio.wav", audio_bytes),
+                        model="whisper-large-v3",
+                        language=language,
+                        response_format="text",
+                        prompt="Phone call. Common: what's up, hello, yes, yeah, no, okay, I'm down, sounds good, four to five, bye. Numbers like '4-5' mean small amounts."
+                    )
                     text = transcription.strip() if isinstance(transcription, str) else ""
             else:
-                # Local Whisper
+                # Local Whisper (needs temp file fallback)
+                if audio_bytes and not audio_file:
+                    # Create temp file only for local Whisper
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                        f.write(audio_bytes)
+                        temp_file = f.name
+                    audio_file = temp_file
+                
                 logger.debug(f"Transcribing with local Whisper: {audio_file}")
                 result = self.model.transcribe(
                     audio_file,
@@ -205,7 +218,7 @@ class STTClient:
             
             logger.info(f"Transcription: {text}")
             
-            # Clean up temp file
+            # Clean up temp file (only if we created one)
             if temp_file and os.path.exists(temp_file):
                 os.unlink(temp_file)
             

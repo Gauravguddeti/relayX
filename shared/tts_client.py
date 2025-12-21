@@ -7,6 +7,7 @@ import os
 import tempfile
 from typing import Optional
 import wave
+import io
 from piper import PiperVoice
 
 
@@ -166,6 +167,86 @@ class TTSClient:
             
         except Exception as e:
             logger.error(f"TTS bytes error: {e}")
+            return None
+    
+    def generate_speech_streaming(self, text: str) -> list:
+        """
+        Generate speech sentence-by-sentence for streaming
+        Returns list of (sentence_text, audio_bytes) tuples
+        This enables lower latency by streaming first sentence while generating rest
+        """
+        import re
+        
+        try:
+            # Split text into sentences
+            # Match periods, exclamation marks, question marks followed by space/end
+            sentences = re.split(r'([.!?]+(?:\s+|$))', text)
+            
+            # Reconstruct sentences with punctuation
+            sentence_list = []
+            for i in range(0, len(sentences) - 1, 2):
+                if sentences[i].strip():
+                    sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                    sentence_list.append(sentence.strip())
+            
+            # Handle case where last item is text without punctuation
+            if len(sentences) % 2 == 1 and sentences[-1].strip():
+                sentence_list.append(sentences[-1].strip())
+            
+            # Generate audio for each sentence
+            results = []
+            for sentence in sentence_list:
+                if not sentence or len(sentence) < 2:
+                    continue
+                
+                # Generate audio bytes for this sentence (IN-MEMORY)
+                audio_bytes = self._generate_sentence_bytes(sentence)
+                if audio_bytes:
+                    results.append((sentence, audio_bytes))
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Streaming TTS error: {e}")
+            # Fallback: return single chunk with all text
+            audio_bytes = self.generate_speech_bytes(text)
+            return [(text, audio_bytes)] if audio_bytes else []
+    
+    def _generate_sentence_bytes(self, text: str) -> Optional[bytes]:
+        """Generate audio bytes for a single sentence (in-memory, no file I/O)"""
+        try:
+            # Clean text
+            enhanced_text = self._enhance_text_naturalness(text)
+            
+            # Generate audio chunks
+            audio_chunks = []
+            for audio_chunk in self.voice.synthesize(enhanced_text):
+                audio_chunks.append(audio_chunk)
+            
+            if not audio_chunks:
+                return None
+            
+            # Get audio properties
+            sample_rate = audio_chunks[0].sample_rate
+            sample_width = audio_chunks[0].sample_width
+            channels = audio_chunks[0].sample_channels
+            
+            # Combine all audio data
+            combined_audio = b''.join(chunk.audio_int16_bytes for chunk in audio_chunks)
+            
+            # Create WAV in memory
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, "wb") as wav_file:
+                wav_file.setnchannels(channels)
+                wav_file.setsampwidth(sample_width)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(combined_audio)
+            
+            wav_buffer.seek(0)
+            return wav_buffer.read()
+            
+        except Exception as e:
+            logger.error(f"Sentence TTS error: {e}")
             return None
     
     def list_speakers(self) -> list:

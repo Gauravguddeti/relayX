@@ -2,11 +2,19 @@
 Voice Gateway for RelayX AI Caller
 Handles Twilio Media Streams via WebSocket
 Real-time pipeline: Audio → STT → LLM → TTS → Audio
+
+ARCHITECTURE (Vapi-style, optimized for <4s response):
+- 3-state machine: LISTENING, USER_SPEAKING, AI_SPEAKING
+- VAD edge-trigger: 240ms speech start, 300ms silence end
+- TRUE barge-in: Interrupt AI mid-speech
+- Intent pre-classifier: Handle casual responses before LLM
+- NO adaptive silence, NO post-TTS sleep, NO cooldowns
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
+from enum import Enum
 import asyncio
 import base64
 import json
@@ -16,8 +24,10 @@ from loguru import logger
 from datetime import datetime
 import audioop
 import tempfile
-import torch
+import webrtcvad
 import numpy as np
+import io
+import wave
 
 # Add shared modules to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -38,7 +48,7 @@ logger.add("logs/voice_gateway.log", rotation="1 day", retention="7 days", level
 app = FastAPI(
     title="RelayX Voice Gateway",
     description="Twilio Media Stream handler for AI voice calls",
-    version="1.0.0"
+    version="2.0.0"  # Major rewrite with barge-in support
 )
 
 # Add CORS middleware to allow dashboard access
@@ -53,38 +63,195 @@ app.add_middleware(
 # Audio settings for Twilio
 TWILIO_SAMPLE_RATE = 8000  # Twilio uses 8kHz
 TWILIO_AUDIO_FORMAT = "mulaw"  # μ-law encoding
-VAD_SAMPLE_RATE = 16000  # Silero VAD expects 16kHz
 
-# Silero VAD model (loaded at startup)
-silero_vad_model = None
+# WebRTC VAD (lightweight, <1ms per frame)
+# Mode: 0=Quality, 1=Low Bitrate, 2=Aggressive, 3=Very Aggressive
+# Using mode=2 (Aggressive) to reduce false positives from noise/echo
+vad = webrtcvad.Vad(mode=2)
 
 # Call sessions storage
 active_sessions = {}
 
 
-class CallSession:
-    """Manages state for an active call"""
+# ==================== SIMPLIFIED 3-STATE MACHINE ====================
+class ConversationState(Enum):
+    """Simple 3-state conversation model (like Vapi.ai)"""
+    LISTENING = "listening"        # Waiting for user to speak
+    USER_SPEAKING = "user_speaking"  # User is actively speaking
+    AI_SPEAKING = "ai_speaking"    # AI is outputting audio
+
+
+# ==================== INTENT PRE-CLASSIFIER (Before LLM) ====================
+# These patterns are handled WITHOUT calling LLM - saves 200-500ms
+AFFIRM_PATTERNS = ["yeah", "yes", "yep", "yup", "haan", "ok", "okay", "sure", "exactly", "right", "correct", "absolutely", "definitely", "of course", "alright", "fine", "go ahead", "please", "i'm down", "im down", "down for that", "down for it", "sounds good", "let's do it", "lets do it", "i'm in", "im in", "count me in", "deal", "perfect", "great", "awesome", "cool", "bet"]
+ACK_PATTERNS = ["hmm", "uh huh", "uh-huh", "huh", "mm", "mhm", "mmhmm", "i see", "got it"]
+OPEN_PATTERNS = ["what's up", "whats up", "what is this", "who is this", "who's calling", "whos calling", "what do you want", "yes what", "yeah what", "hello", "hi"]
+NEGATIVE_PATTERNS = ["no", "nope", "nah", "not interested", "no thanks", "no thank you", "busy", "not now", "call later", "don't call", "wrong number"]
+GOODBYE_PATTERNS = ["bye", "goodbye", "see you", "thanks bye", "thank you bye", "gotta go", "have to go", "talk later", "bye-bye", "bye bye"]
+
+# NOISE WORDS - Single words that are likely STT errors from echo/noise
+# These should NEVER create a user turn or reach LLM context
+NOISE_WORDS = [
+    # Common STT noise artifacts
+    "you", "the", "a", "i", "um", "uh", "ah", "oh", "er", "hmm", "hm",
+    # Partial words / fragments
+    "it", "is", "to", "in", "on", "an", "and", "or", "so", "be",
+    # Very short non-meaningful
+    "k", "m", "n", "s", "t", "y",
+]
+
+# ECHO PHRASES - Multi-word patterns that match AI speech (potential echo)
+# If detected within 2 seconds of AI speaking, treat as echo
+ECHO_PHRASE_PATTERNS = [
+    "thank you", "thanks", "got a moment", "this is", "from relay",
+    "no problem", "you're welcome", "have a great", "you"
+]
+
+
+def classify_intent(text: str, time_since_ai_spoke_ms: float = 9999) -> tuple[str, str | None]:
+    """
+    Fast intent classification for short utterances (runs in <1ms)
+    Returns: (intent, scripted_response or None)
     
-    # Configurable timing parameters - OPTIMIZED FOR FAST NATURAL CONVERSATION
-    SILENCE_THRESHOLD_MS = 1200  # 1200ms of silence = user done speaking (prevents mid-sentence splits)
-    MIN_AUDIO_DURATION_MS = 400  # Minimum 0.4s of audio before processing (catch quick responses)
-    VAD_THRESHOLD = 0.5  # Silero VAD speech probability threshold (0.0-1.0)
-    MIN_SPEECH_ENERGY = 50  # Reject audio with energy < 50 (pure silence/echo is ~120-128)
-    VAD_CHUNK_SIZE = 512  # Minimum bytes needed for Silero VAD (about 64ms at 8kHz)
+    Intents:
+    - "noise" → Likely STT error from echo/noise, ignore
+    - "echo" → Detected AI echo pattern, ignore
+    - "affirm" → User said yes/okay, continue with pitch
+    - "ack" → User acknowledged, continue naturally  
+    - "open" → User wants context, explain purpose
+    - "negative" → User declined, offer callback
+    - "goodbye" → User ending call
+    - "llm" → Need full LLM processing
+    
+    Args:
+        text: The transcribed text
+        time_since_ai_spoke_ms: Milliseconds since AI finished speaking (for echo detection)
+    """
+    text_lower = text.lower().strip()
+    words = text_lower.split()
+    
+    # ==================== NOISE DETECTION ====================
+    # Single word that's likely STT noise - SKIP entirely
+    if len(words) == 1 and text_lower in NOISE_WORDS:
+        return ("noise", None)  # Will be skipped
+    
+    # Very short gibberish (1-2 chars) - likely noise
+    if len(text_lower) <= 2:
+        return ("noise", None)
+    
+    # ==================== ECHO DETECTION ====================
+    # If AI just spoke and this matches AI speech patterns, it's likely echo
+    if time_since_ai_spoke_ms < 2000:  # Within 2 seconds of AI speaking (increased from 1.5s)
+        for pattern in ECHO_PHRASE_PATTERNS:
+            if pattern in text_lower:
+                return ("echo", None)  # Detected as AI echo
+    
+    # Very short utterances - classify directly
+    if len(words) <= 5:
+        # Check patterns (order matters - more specific first)
+        for pattern in GOODBYE_PATTERNS:
+            if pattern in text_lower:
+                return ("goodbye", "Thanks for your time! Goodbye!")
+        
+        for pattern in NEGATIVE_PATTERNS:
+            if pattern in text_lower:
+                return ("negative", None)  # Let LLM handle graceful decline
+        
+        for pattern in OPEN_PATTERNS:
+            if text_lower.startswith(pattern) or pattern in text_lower:
+                return ("open", None)  # Let LLM explain context
+        
+        for pattern in AFFIRM_PATTERNS:
+            if pattern in text_lower or text_lower == pattern:
+                return ("affirm", None)  # Continue with pitch
+        
+        for pattern in ACK_PATTERNS:
+            if pattern in text_lower:
+                return ("ack", None)  # Continue naturally
+    
+    # Longer utterances need LLM
+    return ("llm", None)
+
+
+class CallSession:
+    """
+    Manages state for an active call
+    
+    SIMPLIFIED STATE MACHINE (Vapi-style):
+    - Only 3 states: LISTENING, USER_SPEAKING, AI_SPEAKING
+    - VAD edge-trigger with HYSTERESIS: 200ms speech start, 240ms silence end
+    - TRUE barge-in: User can interrupt AI mid-speech
+    - ECHO PROTECTION: 300ms ignore window after TTS completes
+    - ENERGY SANITY: Filter out non-speech noise
+    - POST-NOISE COOLDOWN: Brief delay after noise detection
+    """
+    
+    # VAD HYSTERESIS TIMINGS (prevents false triggers)
+    SPEECH_START_MS = 200      # VAD speech for 200ms → USER_SPEAKING (was 120ms)
+    SPEECH_END_MS = 240        # VAD silence for 240ms → End utterance (was 300ms)
+    
+    # AUDIO DURATION THRESHOLDS (critical for filtering noise)
+    MIN_AUDIO_DURATION_MS = 400   # Minimum 400ms to even consider processing (was 200ms)
+    MIN_STT_DURATION_MS = 500     # Minimum 500ms before sending to STT (prevent short noise)
+    DISCARD_FIRST_IF_SHORT_MS = 350  # Discard first utterance after AI if < 350ms
+    
+    # ENERGY THRESHOLDS (mulaw: 127 is zero-crossing/silence center)
+    # Only minimum energy check - mobile AGC produces high energy that is valid speech
+    MIN_SPEECH_ENERGY = 30     # Minimum energy to consider as possible speech (lowered for mobile)
+    
+    # PROTECTION WINDOWS
+    ECHO_IGNORE_MS = 400       # Ignore VAD for 400ms after TTS completes (was 300ms)
+    POST_NOISE_COOLDOWN_MS = 200  # Cooldown after noise detection before arming again
+    
+    # WebRTC VAD frame settings
+    VAD_FRAME_DURATION_MS = 30  # 30ms frames for accuracy
+    VAD_FRAME_BYTES = 240       # 30ms at 8kHz = 240 bytes
+    
+    # Frame counts for hysteresis (at 30ms per frame)
+    SPEECH_START_FRAMES = 8    # 8 frames × 30ms = 240ms of speech to trigger (was 7)
+    SPEECH_END_FRAMES = 10     # 10 frames × 30ms = 300ms of silence to end (was 8)
     
     def __init__(self, call_id: str, agent_id: str, stream_sid: str):
         self.call_id = call_id
         self.agent_id = agent_id
         self.stream_sid = stream_sid
         self.audio_buffer = bytearray()
-        self.vad_buffer = bytearray()  # Separate buffer for VAD processing
-        self.is_speaking = False  # AI is currently speaking
+        self.vad_buffer = bytearray()  # Buffer for VAD frame alignment
+        
+        # SIMPLIFIED STATE (3 states only)
+        self.state = ConversationState.LISTENING
+        
+        # VAD edge detection with hysteresis
+        self.speech_start_time = None
+        self.silence_start_time = None
+        self.consecutive_speech_frames = 0
+        self.consecutive_silence_frames = 0
+        
+        # ECHO PROTECTION: Track when TTS finished
+        self.tts_end_time = None  # Set when TTS completes
+        
+        # LLM IN-FLIGHT PROTECTION
+        self.llm_in_flight = False  # True while waiting for LLM response
+        
+        # POST-NOISE COOLDOWN
+        self.noise_detected_time = None  # Set when noise is detected
+        
+        # TURN TRACKING (for first-utterance-after-AI logic)
+        self.ai_turn_count = 0  # Increments each time AI speaks
+        self.last_ai_turn_end = None  # When AI last finished speaking
+        self.utterances_since_ai = 0  # Count of user utterances since AI spoke
+        
+        # Conversation context
         self.conversation_history = []
         self.agent_config = None
-        self.last_user_speech = None
-        self.last_audio_time = datetime.now()
-        self.silence_start = None
+        self.last_user_text = None
+        self.last_user_text_time = None
+        self.last_ai_response = None  # Track last AI response to prevent repetition
         self.created_at = datetime.now()
+        
+        # Barge-in support
+        self.ai_audio_task = None  # Track ongoing AI audio for interruption
+        self.interrupted = False    # Flag to stop AI audio
         
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
@@ -98,99 +265,184 @@ class CallSession:
         self.audio_buffer.clear()
         return data
     
-    def has_sufficient_audio(self, min_duration_ms: Optional[int] = None) -> bool:
-        """Check if buffer has enough audio (approx)"""
-        if min_duration_ms is None:
-            min_duration_ms = self.MIN_AUDIO_DURATION_MS
-        # Rough estimate: mulaw is 1 byte per sample at 8kHz
-        # So 1 second = 8000 bytes
-        min_bytes = (TWILIO_SAMPLE_RATE * min_duration_ms) // 1000
+    def has_sufficient_audio(self) -> bool:
+        """Check if buffer has enough audio"""
+        min_bytes = (TWILIO_SAMPLE_RATE * self.MIN_AUDIO_DURATION_MS) // 1000
         return len(self.audio_buffer) >= min_bytes
     
-    def detect_silence(self, audio_data: bytes) -> bool:
-        """Silero VAD-based speech detection with buffering"""
-        global silero_vad_model
+    def is_in_echo_window(self) -> bool:
+        """Check if we're still in the echo ignore window after TTS"""
+        if self.tts_end_time is None:
+            return False
+        elapsed_ms = (datetime.now() - self.tts_end_time).total_seconds() * 1000
+        return elapsed_ms < self.ECHO_IGNORE_MS
+    
+    def is_in_noise_cooldown(self) -> bool:
+        """Check if we're still in cooldown after noise detection"""
+        if self.noise_detected_time is None:
+            return False
+        elapsed_ms = (datetime.now() - self.noise_detected_time).total_seconds() * 1000
+        return elapsed_ms < self.POST_NOISE_COOLDOWN_MS
+    
+    def mark_noise_detected(self):
+        """Mark that noise was detected, starting cooldown"""
+        self.noise_detected_time = datetime.now()
+    
+    def is_first_utterance_after_ai(self) -> bool:
+        """Check if this is the first utterance after AI finished speaking"""
+        return self.utterances_since_ai == 0 and self.last_ai_turn_end is not None
+    
+    def mark_ai_turn_complete(self):
+        """Mark that AI finished speaking"""
+        self.ai_turn_count += 1
+        self.last_ai_turn_end = datetime.now()
+        self.utterances_since_ai = 0
+    
+    def mark_user_utterance(self):
+        """Mark that user made a real utterance (not noise)"""
+        self.utterances_since_ai += 1
+    
+    def detect_speech_vad(self, audio_data: bytes) -> bool:
+        """
+        WebRTC VAD speech detection with SANITY CHECKS
         
-        if len(audio_data) == 0 or silero_vad_model is None:
-            return True
+        Returns True ONLY if:
+        1. Not in echo ignore window (300ms after TTS)
+        2. Energy is in valid speech range (not noise/clipping)
+        3. WebRTC VAD confirms speech OR energy strongly suggests speech
+        """
+        global vad
         
-        # Add chunk to VAD buffer
+        if len(audio_data) == 0:
+            return False
+        
+        # Calculate energy (mulaw: 127 is silence, deviation indicates sound)
+        energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
+        
+        # ==================== SANITY CHECK 1: Echo Window ====================
+        if self.is_in_echo_window():
+            # Still in echo ignore period - don't detect any speech
+            return False
+        
+        # ==================== SANITY CHECK 2: Minimum Energy ====================
+        # Energy < MIN_SPEECH_ENERGY: Too quiet, likely silence
+        # NOTE: We removed MAX_NOISE_ENERGY check because mobile phones with AGC
+        # produce high-energy audio (often 127) that is valid speech, not noise.
+        # WebRTC VAD handles actual noise detection better than energy thresholds.
+        if energy < self.MIN_SPEECH_ENERGY:
+            return False  # Too quiet to be speech
+        
+        # Add to VAD buffer for frame alignment
         self.vad_buffer.extend(audio_data)
         
-        # Silero VAD requires EXACT sample counts: 512 samples at 16kHz
-        # At 8kHz mulaw, that's 256 bytes (which becomes 512 samples after 2x resampling)
-        EXACT_VAD_BYTES = 256  # 256 bytes at 8kHz = 512 samples at 16kHz after resampling
-        
-        # We need at least EXACT_VAD_BYTES to run Silero VAD
-        if len(self.vad_buffer) < EXACT_VAD_BYTES:
-            # Not enough data yet - assume silence for now
-            return True
+        # WebRTC VAD needs exact frame sizes
+        if len(self.vad_buffer) < self.VAD_FRAME_BYTES:
+            # Not enough for WebRTC VAD, use energy-only detection
+            # Only trigger if energy is in strong speech range
+            return 50 < energy < 100
         
         try:
-            # Take exactly the right amount of bytes (256 at 8kHz)
-            # Keep any extra bytes in buffer for next call
-            vad_data = bytes(self.vad_buffer[:EXACT_VAD_BYTES])
-            # Remove processed bytes from buffer
-            self.vad_buffer = self.vad_buffer[EXACT_VAD_BYTES:]
+            speech_frame_count = 0
+            total_frames = 0
             
-            # Convert mulaw to linear PCM (required for VAD)
-            pcm_data = audioop.ulaw2lin(vad_data, 2)  # 16-bit PCM
+            # Process all complete frames
+            while len(self.vad_buffer) >= self.VAD_FRAME_BYTES:
+                frame_data = bytes(self.vad_buffer[:self.VAD_FRAME_BYTES])
+                self.vad_buffer = self.vad_buffer[self.VAD_FRAME_BYTES:]
+                
+                # Convert mulaw to PCM for VAD
+                pcm_data = audioop.ulaw2lin(frame_data, 2)
+                total_frames += 1
+                
+                if vad.is_speech(pcm_data, TWILIO_SAMPLE_RATE):
+                    speech_frame_count += 1
             
-            # Convert to numpy array
-            audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+            # Require majority of frames to be speech (reduces false positives)
+            is_speech = speech_frame_count > (total_frames / 2) if total_frames > 0 else False
             
-            # Resample from 8kHz to 16kHz for Silero VAD
-            # 256 samples at 8kHz -> 512 samples at 16kHz (exactly what Silero needs!)
-            audio_16k = np.interp(
-                np.linspace(0, len(audio_array), len(audio_array) * 2),
-                np.arange(len(audio_array)),
-                audio_array
-            ).astype(np.int16)
+            # Only trust energy fallback for STRONG speech indicators
+            if not is_speech and 55 < energy < 90:
+                # Energy suggests possible speech but VAD disagrees
+                # Trust VAD more than energy (VAD is ML-based)
+                pass  # Don't override VAD decision
             
-            # Normalize to [-1, 1] float32
-            audio_float = audio_16k.astype(np.float32) / 32768.0
-            
-            # Convert to torch tensor
-            audio_tensor = torch.from_numpy(audio_float)
-            
-            # Get speech probability from Silero VAD
-            speech_prob = silero_vad_model(audio_tensor, VAD_SAMPLE_RATE).item()
-            
-            # Return True if silence (speech probability below threshold)
-            is_silence = speech_prob < self.VAD_THRESHOLD
-            
-            return is_silence
+            return is_speech
             
         except Exception as e:
-            logger.warning(f"Silero VAD error: {e}")
-            # Clear buffer on error to prevent repeated failures
+            logger.warning(f"VAD error: {e}")
             self.vad_buffer.clear()
-            # Fallback: simple energy-based detection
-            energy = sum(abs(b - 127) for b in audio_data) / len(audio_data)
-            return energy > 120 or energy < 60
+            # Fallback: stricter energy-based detection
+            return 55 < energy < 90
     
-    def update_silence_state(self, is_silence: bool):
-        """Track silence duration for VAD"""
-        if is_silence:
-            if self.silence_start is None:
-                self.silence_start = datetime.now()
+    def update_vad_state(self, is_speech: bool) -> str | None:
+        """
+        VAD edge-trigger state machine with HYSTERESIS
+        Returns: "speech_start", "speech_end", or None
+        
+        HYSTERESIS prevents false triggers:
+        - Speech start: 8 consecutive speech frames (~240ms)
+        - Speech end: 10 consecutive silence frames (~300ms)
+        
+        PROTECTION:
+        - Ignores VAD during echo window (400ms after TTS)
+        - Ignores VAD while LLM is in-flight
+        - Ignores VAD during post-noise cooldown (200ms)
+        """
+        # ==================== PROTECTION CHECKS ====================
+        if self.is_in_echo_window():
+            # Still in echo protection window - ignore all VAD
+            self.consecutive_speech_frames = 0
+            self.consecutive_silence_frames = 0
+            return None
+        
+        if self.llm_in_flight:
+            # LLM is processing - ignore VAD to prevent false triggers
+            return None
+        
+        if self.is_in_noise_cooldown():
+            # Just detected noise - brief cooldown before arming again
+            self.consecutive_speech_frames = 0
+            return None
+        
+        # ==================== STATE MACHINE ====================
+        if is_speech:
+            self.consecutive_speech_frames += 1
+            self.consecutive_silence_frames = 0
+            
+            # Check for speech start trigger (only in LISTENING state)
+            if self.consecutive_speech_frames >= self.SPEECH_START_FRAMES and self.state == ConversationState.LISTENING:
+                logger.info(f"🎙️ VAD: Speech detected for {self.consecutive_speech_frames} frames ({self.consecutive_speech_frames * 30}ms) - triggering speech_start")
+                return "speech_start"
         else:
-            self.silence_start = None
+            self.consecutive_silence_frames += 1
+            # DON'T reset speech frames immediately - allow gaps in speech
+            # Only reset after significant silence (4 frames = 120ms)
+            if self.consecutive_silence_frames >= 4:
+                self.consecutive_speech_frames = 0
+            
+            # Check for speech end trigger (only during USER_SPEAKING)
+            if self.state == ConversationState.USER_SPEAKING:
+                if self.consecutive_silence_frames >= self.SPEECH_END_FRAMES:
+                    logger.info(f"🔇 VAD: Silence for {self.consecutive_silence_frames} frames ({self.consecutive_silence_frames * 30}ms) - triggering speech_end")
+                    return "speech_end"
+        
+        return None
     
-    def get_silence_duration_ms(self) -> int:
-        """Get current silence duration in milliseconds"""
-        if self.silence_start is None:
-            return 0
-        return int((datetime.now() - self.silence_start).total_seconds() * 1000)
+    def reset_for_listening(self):
+        """Reset state for listening mode - DOES NOT clear echo window"""
+        self.speech_start_time = None
+        self.silence_start_time = None
+        self.consecutive_speech_frames = 0
+        self.consecutive_silence_frames = 0
+        self.vad_buffer.clear()
+        self.llm_in_flight = False
+        self.state = ConversationState.LISTENING
+        # NOTE: tts_end_time is NOT cleared - echo window must expire naturally
     
-    def reset_for_ai_speech(self):
-        """Reset state when AI starts speaking to prevent echo contamination"""
-        self.audio_buffer.clear()
-        self.silence_start = None
-        self.recent_energy = []  # Reset baseline tracking
-        self.baseline_energy = 70.0  # Reset to default
-
-
+    def interrupt_ai(self):
+        """Signal to interrupt ongoing AI audio"""
+        self.interrupted = True
+        logger.info("🛑 BARGE-IN: User interrupted AI speech")
 # ==================== TWIML ENDPOINTS ====================
 
 @app.get("/")
@@ -461,20 +713,20 @@ async def recording_callback(call_id: str, request: Request):
         return {"status": "error", "message": str(e)}
 
 
-# ==================== WEBSOCKET HANDLER ====================
+# ==================== WEBSOCKET HANDLER (VAPI-STYLE) ====================
 
 @app.websocket("/ws/{call_id}")
 async def websocket_handler(websocket: WebSocket, call_id: str):
     """
     Main WebSocket handler for Twilio Media Streams
     
-    Flow:
-    1. Receive audio chunks from Twilio (mulaw encoded)
-    2. Buffer audio until we have enough for STT
-    3. Convert to text (Whisper)
-    4. Send to LLM with conversation history
-    5. Generate speech (TTS)
-    6. Stream audio back to Twilio
+    VAPI-STYLE ARCHITECTURE:
+    - 3-state machine: LISTENING → USER_SPEAKING → AI_SPEAKING
+    - VAD edge-trigger: 240ms speech start, 300ms silence end
+    - TRUE barge-in: User can interrupt AI mid-speech
+    - NO post-TTS sleep, NO cooldowns, NO adaptive silence
+    
+    Target: <4s total response time (including STT + LLM + TTS)
     """
     await websocket.accept()
     logger.info(f"WebSocket connected for call {call_id}")
@@ -522,36 +774,33 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     session.agent_config = agent
                     active_sessions[stream_sid] = session
                     
-                    # Generate opening line with LLM using agent's prompt
-                    GREETING_PROMPT = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
-You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
-Never share private information. Stay professional and helpful.
+                    # Generate opening line with LLM
+                    GREETING_PROMPT = """You are making an OUTBOUND sales call. Generate your opening line.
 
-IMPORTANT: Output ONLY the exact words you will speak. NO meta-commentary, NO quotes, NO explanations like "Here's my opening line". Just speak naturally.
+CRITICAL RULES:
+- Output ONLY the exact words you will speak - nothing else
+- NO quotes, NO meta-commentary like "Here's my opening line:"
+- Keep it to 2 sentences MAX (this is a phone call)
+- Sound natural and confident, not robotic
+- Use contractions: "I'm" not "I am", "you're" not "you are"
 
-OUTBOUND CALL BEHAVIOR:
-- This is an OUTBOUND call - YOU called THEM
-- Introduce yourself briefly and ask if they have a moment
-- Keep it SHORT (1-2 sentences max)
-- Sound natural and friendly
+STRUCTURE:
+1. Brief introduction (name + company)
+2. Polite ask if they have a moment
 
-VOICE FORMATTING RULES (CRITICAL FOR TTS):
-- NEVER write times as digits like "12:00" - say "twelve PM" or "noon"
-- NEVER write "24/7" - say "twenty four seven"
-- Write numbers as words for better pronunciation
-
-Examples (output like these, NO quotes):
-Hi! This is Emma from TechCorp. I wanted to reach out about your recent inquiry. Do you have a quick moment?
-Hello! This is Mark with ABC Services. I'm following up on your interest. Is now a good time?"""
+VOICE FORMATTING:
+- Write times as words: "twelve PM" not "12:00"
+- Write "twenty four seven" not "24/7"
+- Numbers as words for pronunciation"""
                     
-                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant. Which works for outbound calls.")
+                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
                     system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
                     
                     greeting = await llm.generate_response(
-                        messages=[{"role": "user", "content": "Say your opening line now."}],
+                        messages=[{"role": "user", "content": "Generate your opening line for this cold call."}],
                         system_prompt=system_prompt,
                         temperature=agent.get("temperature", 0.7),
-                        max_tokens=30  # ~12 words max
+                        max_tokens=50  # Increased for better greeting
                     )
                     
                     # Clean meta-commentary
@@ -565,61 +814,75 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                     
                     logger.info(f"Generated greeting: {greeting}")
                     
-                    # Save greeting to database BEFORE sending (for conversation context)
-                    await db.add_transcript(
-                        call_id=call_id,
-                        speaker="agent",
-                        text=greeting
-                    )
+                    # Save to database
+                    await db.add_transcript(call_id=call_id, speaker="agent", text=greeting)
                     
-                    # Set speaking flag and clear buffer BEFORE sending (blocks new audio)
-                    session.is_speaking = True
-                    session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
-                    duration = await send_ai_response(websocket, stream_sid, greeting, tts, db, call_id)
+                    # Set AI_SPEAKING state and send audio
+                    session.state = ConversationState.AI_SPEAKING
+                    session.interrupted = False
+                    await send_ai_response_with_bargein(websocket, session, greeting, tts, db, call_id)
                     
-                    # Keep is_speaking=True for audio duration + 1s buffer (Twilio network latency + audio buffering)
-                    await asyncio.sleep(duration + 1.0)
-                    session.is_speaking = False
+                    # Mark AI turn complete for first-utterance tracking
+                    session.mark_ai_turn_complete()
+                    
+                    # Immediately ready for user input (NO SLEEP!)
+                    session.reset_for_listening()
+                    logger.info("🟢 AI finished speaking - ready for user input (state: LISTENING)")
                 
                 elif event == "media":
-                    # Audio data received
                     if not session:
-                        logger.warning("Media event but no session!")
                         continue
                     
-                    # Decode mulaw audio
+                    # Decode audio
                     payload = data["media"]["payload"]
                     audio_data = base64.b64decode(payload)
                     
-                    # Update last audio time
-                    session.last_audio_time = datetime.now()
+                    # ==================== BARGE-IN: Check for interruption during AI speech ====================
+                    if session.state == ConversationState.AI_SPEAKING:
+                        # Run VAD on incoming audio even during AI speech
+                        is_speech = session.detect_speech_vad(audio_data)
+                        if is_speech:
+                            # User is speaking over AI - INTERRUPT!
+                            session.interrupt_ai()
+                            session.state = ConversationState.USER_SPEAKING
+                            session.speech_start_time = datetime.now()
+                            session.audio_buffer.clear()  # Start fresh buffer for user speech
+                            logger.info("🛑 BARGE-IN DETECTED: Switching to USER_SPEAKING")
+                        continue  # Don't buffer AI's own audio
                     
-                    # Skip processing if AI is speaking (prevents echo and interruption)
-                    if session.is_speaking:
-                        # Don't buffer during AI speech - prevents echo contamination
-                        logger.debug(f"🚫 Skipping audio during AI speech: {len(audio_data)} bytes | is_speaking={session.is_speaking}")
-                        continue
+                    # ==================== VAD EDGE-TRIGGER STATE MACHINE ====================
+                    is_speech = session.detect_speech_vad(audio_data)
+                    vad_event = session.update_vad_state(is_speech)
                     
-                    # Detect silence
-                    is_silence = session.detect_silence(audio_data)
-                    session.update_silence_state(is_silence)
+                    # ==================== AUDIO BUFFERING: ONLY in USER_SPEAKING ====================
+                    # This is critical to prevent echo/noise from polluting the buffer
+                    if session.state == ConversationState.USER_SPEAKING:
+                        session.add_audio_chunk(audio_data)
                     
-                    # Add to buffer
-                    session.add_audio_chunk(audio_data)
+                    # State transitions based on VAD edges
+                    if vad_event == "speech_start" and session.state == ConversationState.LISTENING:
+                        # User started speaking (210ms of speech detected)
+                        session.state = ConversationState.USER_SPEAKING
+                        session.add_audio_chunk(audio_data)  # Add the triggering audio too
+                        logger.info(f"🎤 Speech START detected - state: USER_SPEAKING | Echo window: {session.is_in_echo_window()}")
                     
-                    # Log every second with silence status
-                    if len(session.audio_buffer) % 8000 == 0:
-                        # Calculate energy and speech probability for debug
+                    elif vad_event == "speech_end" and session.state == ConversationState.USER_SPEAKING:
+                        # User finished speaking (240ms of silence)
+                        audio_duration = len(session.audio_buffer) / 8000
+                        if session.has_sufficient_audio():
+                            logger.info(f"🎤 Speech END detected - processing {len(session.audio_buffer)}B ({audio_duration:.2f}s)")
+                            await process_user_speech_fast(session, websocket, stt, llm, tts, db)
+                        else:
+                            logger.debug(f"Speech end but insufficient audio ({len(session.audio_buffer)}B) - skipping")
+                            session.reset_for_listening()
+                    
+                    # Periodic debug logging (every second)
+                    if len(session.audio_buffer) % 8000 == 0 and len(session.audio_buffer) > 0:
                         energy = sum(abs(b - 127) for b in audio_data) / len(audio_data) if audio_data else 0
-                        logger.info(f"📊 Buffer: {len(session.audio_buffer)}B | Silence: {session.get_silence_duration_ms()}ms | Energy: {energy:.1f} | IsSilence: {is_silence} | is_speaking: {session.is_speaking}")
-                    
-                    # Process when sufficient audio + silence detected (fast response)
-                    if session.has_sufficient_audio() and session.get_silence_duration_ms() > session.SILENCE_THRESHOLD_MS:
-                        logger.info(f"🎤 PROCESSING: {len(session.audio_buffer)} bytes, {session.get_silence_duration_ms()}ms silence")
-                        await process_user_speech(session, websocket, stt, llm, tts, db)
+                        echo_status = "ECHO_WINDOW" if session.is_in_echo_window() else "clear"
+                        logger.info(f"📊 State: {session.state.value} | Buffer: {len(session.audio_buffer)}B | Speech: {is_speech} | Energy: {energy:.1f} | {echo_status}")
                 
                 elif event == "stop":
-                    # Stream ended
                     logger.info(f"Stream stopped: {stream_sid}")
                     break
                 
@@ -630,26 +893,25 @@ Hello! This is Mark with ABC Services. I'm following up on your interest. Is now
                 logger.warning(f"Invalid JSON received: {e}")
                 continue
             except Exception as e:
-                logger.error(f"Error processing message: {e}")
+                logger.error(f"Error processing message: {e}", exc_info=True)
                 continue
         
     except Exception as e:
-        logger.error(f"WebSocket error for call {call_id}: {e}")
+        logger.error(f"WebSocket error for call {call_id}: {e}", exc_info=True)
     
     finally:
-        # Cleanup
         if session and session.stream_sid in active_sessions:
             del active_sessions[session.stream_sid]
-        
         logger.info(f"WebSocket closed for call {call_id}")
-        
         try:
             await websocket.close()
         except:
             pass
 
 
-async def process_user_speech(
+# ==================== FAST USER SPEECH PROCESSING (Vapi-style) ====================
+
+async def process_user_speech_fast(
     session: CallSession,
     websocket: WebSocket,
     stt: STTClient,
@@ -657,268 +919,335 @@ async def process_user_speech(
     tts: TTSClient,
     db: SupabaseDB
 ):
-    """Process accumulated user speech"""
+    """
+    Process user speech with CONVERSATION INTEGRITY CHECKS
+    
+    Flow:
+    1. AUDIO QUALITY GATES - Reject short/low-energy audio before STT
+    2. STT transcription
+    3. INTENT CLASSIFICATION - Detect noise, corrections, intents
+    4. CORRECTION PHRASE HANDLING - Extract real intent from "No, I said X"
+    5. Response generation (scripted or LLM)
+    6. TTS → Send audio with barge-in support
+    """
     try:
-        # Get audio from buffer
+        # Get audio
         audio_mulaw = session.get_and_clear_buffer()
-        
         if not audio_mulaw:
+            session.reset_for_listening()
             return
         
-        logger.info(f"Processing {len(audio_mulaw)} bytes of audio for call {session.call_id}")
+        audio_duration_ms = (len(audio_mulaw) / TWILIO_SAMPLE_RATE) * 1000
+        logger.info(f"Processing {len(audio_mulaw)} bytes ({audio_duration_ms:.0f}ms) for call {session.call_id}")
         
-        # Check audio quality - calculate average energy
+        # ==================== AUDIO QUALITY GATE 1: Duration ====================
+        # Very short audio is almost certainly noise/echo, don't waste STT call
+        if audio_duration_ms < session.MIN_STT_DURATION_MS:
+            # Special case: First utterance after AI is more likely to be echo
+            if session.is_first_utterance_after_ai() and audio_duration_ms < session.DISCARD_FIRST_IF_SHORT_MS:
+                logger.info(f"🚫 First utterance after AI too short ({audio_duration_ms:.0f}ms < {session.DISCARD_FIRST_IF_SHORT_MS}ms) - likely echo, discarding")
+                session.mark_noise_detected()
+                session.reset_for_listening()
+                return
+            
+            if audio_duration_ms < session.MIN_AUDIO_DURATION_MS:
+                logger.info(f"🚫 Audio too short ({audio_duration_ms:.0f}ms < {session.MIN_AUDIO_DURATION_MS}ms) - skipping STT")
+                session.mark_noise_detected()
+                session.reset_for_listening()
+                return
+        
+        # ==================== AUDIO QUALITY GATE 2: Energy ====================
+        # Only check minimum energy - max energy check removed because mobile phones
+        # with AGC produce high-energy audio (often 127) that is valid speech
         avg_energy = sum(abs(b - 127) for b in audio_mulaw) / len(audio_mulaw)
-        
-        # Check for pure silence (mulaw value 128 = silence)
-        silence_ratio = sum(1 for b in audio_mulaw if abs(b - 127) <= 1) / len(audio_mulaw)
-        
-        logger.debug(f"Audio energy: {avg_energy:.1f} | Silence ratio: {silence_ratio:.2%}")
-        
-        # Reject if mostly silence (>70% silence values)
-        if silence_ratio > 0.70:
-            logger.info(f"Audio is {silence_ratio:.1%} silence - skipping transcription")
-            return
-        
-        # Reject if energy too low (likely silence/background noise/echo)
         if avg_energy < session.MIN_SPEECH_ENERGY:
-            logger.info(f"Audio energy too low ({avg_energy:.1f}), likely background noise/echo - skipping transcription")
+            logger.info(f"🚫 Energy too low ({avg_energy:.1f} < {session.MIN_SPEECH_ENERGY}) - skipping")
+            session.mark_noise_detected()
+            session.reset_for_listening()
             return
         
-        # Convert mulaw to linear PCM for Whisper
-        audio_pcm = audioop.ulaw2lin(audio_mulaw, 2)  # 2 bytes per sample (16-bit)
-        
-        # Upsample from 8kHz to 16kHz for better Whisper accuracy
+        # Convert to WAV for STT
+        audio_pcm = audioop.ulaw2lin(audio_mulaw, 2)
         audio_pcm_16k, _ = audioop.ratecv(audio_pcm, 2, 1, TWILIO_SAMPLE_RATE, 16000, None)
         
-        # Save to temp WAV file for Whisper
-        import wave
-        import tempfile
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(audio_pcm_16k)
+        wav_buffer.seek(0)
+        wav_bytes = wav_buffer.read()
         
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            wav_path = f.name
-            with wave.open(f, 'wb') as wav:
-                wav.setnchannels(1)  # Mono
-                wav.setsampwidth(2)  # 16-bit
-                wav.setframerate(16000)  # 16kHz for better Whisper accuracy
-                wav.writeframes(audio_pcm_16k)
-        
-        # Transcribe
-        user_text = stt.transcribe_audio(audio_file=wav_path)
-        
-        # Cleanup temp file
-        try:
-            os.unlink(wav_path)
-        except:
-            pass
+        # STT transcription
+        stt_start = datetime.now()
+        user_text = stt.transcribe_audio(audio_data=wav_bytes)
+        stt_duration = (datetime.now() - stt_start).total_seconds() * 1000
         
         if not user_text or len(user_text.strip()) < 2:
             logger.debug("No meaningful speech detected")
+            session.mark_noise_detected()
+            session.reset_for_listening()
             return
         
-        logger.info(f"User said: {user_text}")
+        logger.info(f"👤 User said: '{user_text}' (STT: {stt_duration:.0f}ms)")
         
-        # Save to database
-        await db.add_transcript(
-            call_id=session.call_id,
-            speaker="user",
-            text=user_text
-        )
+        # ==================== CORRECTION PHRASE HANDLING ====================
+        # Detect "No, I said X" or "I said X" patterns and extract the real intent
+        import re
+        correction_match = re.match(r"^(?:no,?\s*)?i\s+said\s+['\"]?(.+?)['\"]?\.?$", user_text.lower().strip(), re.IGNORECASE)
+        if correction_match:
+            extracted_text = correction_match.group(1).strip()
+            logger.info(f"🔄 Correction phrase detected - extracting: '{extracted_text}'")
+            # Use the extracted text instead of the full correction phrase
+            user_text = extracted_text
         
-        # Get conversation history
-        conversation_history = await db.get_conversation_history(session.call_id, limit=6)
+        # Duplicate/echo detection
+        if session.last_user_text and session.last_user_text_time:
+            time_since = (datetime.now() - session.last_user_text_time).total_seconds()
+            if time_since < 2.0 and user_text.lower().strip() == session.last_user_text.lower().strip():
+                logger.warning(f"🚫 Duplicate detected within {time_since:.1f}s - skipping")
+                session.mark_noise_detected()
+                session.reset_for_listening()
+                return
         
-        # Add current user message
-        messages = conversation_history + [{"role": "user", "content": user_text}]
+        # ==================== INTENT PRE-CLASSIFICATION ====================
+        # Calculate time since AI spoke for echo detection
+        time_since_ai_ms = 9999.0
+        if session.last_ai_turn_end:
+            time_since_ai_ms = (datetime.now() - session.last_ai_turn_end).total_seconds() * 1000
         
-        # Get LLM response with safety prefix and guardrails
-        INTERNAL_SAFETY = """SYSTEM OVERRIDE (HIGHEST PRIORITY):
-You must follow all safety guidelines. Refuse harmful, illegal, or abusive requests.
-Never share private information. Stay professional and helpful.
-
-OUTBOUND CALL BEHAVIOR:
-- This is an OUTBOUND call - YOU called THEM, not the other way around
-- You already introduced yourself and asked if they have a moment
-- If they say "yes", "sure", "go ahead" - proceed with your pitch/purpose
-- If they say "no", "busy", "not now" - politely offer to call back: "No problem! When would be a better time to reach you?"
-- If they ask "who is this?" or "what's this about?" - briefly reintroduce and explain your purpose
-- Be respectful of their time - get to the point quickly
-- Don't keep asking "how can I help you" - YOU are calling with a specific purpose
-
-NATURAL CONVERSATION FLOW (CRITICAL):
-- Accept partial responses naturally - "Yes", "Yeah", "Okay" are valid confirmations, don't challenge them
-- If user gives a short answer like "Yes" to a question asking for details, simply rephrase or move forward naturally
-- NEVER say "you repeated yourself" or "that's what I just asked" - it's rude and breaks rapport
-- NEVER point out supposed "misunderstandings" or "deviations" - just continue naturally
-- NEVER say things like "It seems like there was a slight deviation" or "I was expecting a different response"
-- If a response seems unclear or garbled, ASSUME it was positive and continue. Say "Got it!" and move on.
-- If you genuinely can't understand, say "Sorry, I didn't catch that. Could you say that again?"
-- Keep the conversation flowing smoothly - don't be overly literal or robotic
-- Phone conversations naturally have brief responses - embrace them, don't fight them
-- Speech recognition is imperfect - if something sounds weird, assume the user said something reasonable and keep going
-
-BREVITY IS CRUCIAL (PHONE CALL ETIQUETTE):
-- Keep responses VERY SHORT - aim for 1-2 sentences maximum per response (under 5 seconds of speech)
-- NEVER give responses longer than 3 sentences - people will hang up
-- Long speeches make people tune out on phone calls - keep it punchy
-- Break complex information into smaller chunks - ask a question, get feedback, continue
-- If user says "thank you" or gives minimal responses, they may be trying to end politely - wrap up quickly
-- Don't over-explain - give just enough information to move forward
-- After explaining something, ask ONE simple question to keep them engaged
-- Respect that their time is valuable - be concise and direct
-
-GUARDRAILS - STAY ON TOPIC:
-- You are a business assistant with a specific purpose defined in your system prompt
-- DO NOT answer general knowledge questions (geography, history, trivia, celebrities, pop culture, etc.)
-- DO NOT engage with random topics unrelated to your business purpose
-- If asked off-topic questions, politely redirect: "I'm here to help with [your business purpose]. How can I assist you with that?"
-- If user is clearly not interested or being disruptive, politely end the call
-- Stay focused on your goal and don't get sidetracked
-
-VOICE FORMATTING RULES (CRITICAL FOR TTS):
-- NEVER write times as digits like "12:00" or "1:00" - TTS will say "zero zero"
-- ALWAYS write times in words: "twelve PM", "one AM", "two thirty PM", "ten fifteen AM"
-- Examples: "nine AM", "three thirty PM", "twelve noon", "midnight"
-- For half hours: "two thirty" not "2:30"
-- For quarter hours: "three fifteen" or "quarter past three" not "3:15"
-
-NUMBERS & SLASHES (IMPORTANT):
-- NEVER write "24/7" - say "twenty four seven" or "around the clock"
-- NEVER write "365" - say "three sixty five" or "all year"
-- NEVER write "50%" - say "fifty percent" or "half"
-- Write numbers as words for better pronunciation: "twenty four" not "24"
-
-CALL ENDING PROTOCOL:
-- When the conversation goal is complete or user wants to end, say: "Thanks for your time! If you have any questions later, feel free to reach out. You can hang up now. Goodbye!"
-- After saying goodbye, the user will disconnect - DO NOT continue talking
-- If user says goodbye/bye/I have to go, acknowledge and end: "Thank you, goodbye!"
-- Do not keep the call going unnecessarily - respect the user's time"""
+        intent, scripted_response = classify_intent(user_text, time_since_ai_ms)
+        logger.info(f"🧠 Intent: {intent} (time since AI: {time_since_ai_ms:.0f}ms)")
         
-        base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful AI assistant.")
-        system_prompt = f"{INTERNAL_SAFETY}\n\n{base_prompt}"
-        temperature = session.agent_config.get("temperature", 0.7)
-        max_tokens = 30  # Ultra-short: ~12 words max for natural phone conversation
-        
-        try:
-            ai_response = await llm.generate_response(
-                messages=messages,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            logger.info(f"AI response: {ai_response}")
-        except Exception as llm_error:
-            logger.error(f"⚠️  GROQ API FAILURE (not system issue): {llm_error}")
-            # Send error message to caller
-            error_message = "I'm having trouble connecting to my AI service right now. This is a Groq API issue. Please try again in a moment."
-            await send_ai_response(websocket, session.stream_sid, error_message, tts, db, session.call_id)
-            session.is_speaking = False
+        # ==================== NOISE/ECHO DETECTION - Skip entirely ====================
+        if intent in ("noise", "echo"):
+            reason = "echo" if intent == "echo" else "noise"
+            logger.info(f"🔇 {reason.title()} detected ('{user_text}') - ignoring, starting cooldown")
+            session.mark_noise_detected()
+            session.reset_for_listening()
             return
         
-        # Save AI response to database
-        await db.add_transcript(
-            call_id=session.call_id,
-            speaker="agent",
-            text=ai_response
-        )
+        # ==================== MARK REAL USER UTTERANCE ====================
+        session.mark_user_utterance()
+        session.last_user_text = user_text
+        session.last_user_text_time = datetime.now()
         
-        # Generate speech and send to Twilio
-        session.is_speaking = True
-        session.reset_for_ai_speech()  # Clear buffer and reset baseline to prevent echo
-        duration = await send_ai_response(websocket, session.stream_sid, ai_response, tts, db, session.call_id)
+        # Save user transcript
+        await db.add_transcript(call_id=session.call_id, speaker="user", text=user_text)
         
-        # Keep is_speaking=True for audio duration + 1s buffer (Twilio network latency + audio buffering)
-        await asyncio.sleep(duration + 1.0)
-        session.is_speaking = False
+        # Handle scripted responses (no LLM needed)
+        if scripted_response:
+            ai_response = scripted_response
+            logger.info(f"⚡ Scripted response (no LLM): {ai_response}")
+        else:
+            # ==================== SET LLM IN-FLIGHT FLAG ====================
+            # This prevents VAD from triggering false speech during LLM wait
+            session.llm_in_flight = True
+            
+            # Get conversation history (more context for better responses)
+            conversation_history = await db.get_conversation_history(session.call_id, limit=10)
+            messages = conversation_history + [{"role": "user", "content": user_text}]
+            
+            # Debug: Log conversation context being sent
+            logger.debug(f"📝 Conversation context: {len(conversation_history)} previous messages + current: '{user_text}'")
+            if conversation_history:
+                logger.debug(f"📝 Last exchange: {conversation_history[-2:] if len(conversation_history) >= 2 else conversation_history}")
+            
+            # Build system prompt based on intent
+            if intent == "affirm":
+                # User said yes/okay - add context to help LLM continue
+                intent_hint = """
+CONTEXT: User just confirmed/agreed (said yes, okay, sure, etc.)
+ACTION: Continue with your pitch or next question. Do NOT ask them to clarify. Do NOT repeat your last question."""
+            elif intent == "ack":
+                # User acknowledged - continue naturally
+                intent_hint = """
+CONTEXT: User acknowledged (hmm, uh-huh, I see)
+ACTION: Continue speaking naturally. They are listening."""
+            elif intent == "open":
+                # User wants context
+                intent_hint = """
+CONTEXT: User wants to know who you are or what this is about.
+ACTION: Briefly explain your purpose in 1-2 sentences."""
+            elif intent == "negative":
+                # User declined
+                intent_hint = """
+CONTEXT: User seems uninterested or busy.
+ACTION: Acknowledge respectfully and offer to call back at a better time. Don't be pushy."""
+            else:
+                intent_hint = ""
+            
+            # PROFESSIONAL SALES AGENT PROMPT
+            SALES_AGENT_RULES = """CRITICAL RULES FOR PHONE SALES AGENT:
+
+1. NEVER REPEAT YOURSELF - Check conversation history! If you already asked a question, move on
+2. UNDERSTAND SLANG - "I'm down", "down for that", "bet", "sounds good" = YES/INTERESTED
+3. NUMBERS - "4-5" or "four to five" means a SMALL number (4-5), NOT 400-500
+4. LISTEN TO CONTEXT - If user says "I'm down for that", they're AGREEING with what you proposed
+5. BE PROFESSIONAL - Respect their time on mobile
+6. CONCISE - 1-2 sentences max per response
+7. NATURAL SPEECH - Use contractions: "I'm", "you're", "that's"
+8. IF CONFUSED - Clarify briefly, don't over-explain
+9. ADVANCE CONVERSATION - Each response should progress toward booking/closing
+10. DON'T LOOP - If conversation seems stuck, change approach
+"""
+            base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful assistant.")
+            
+            # Add last AI response context to prevent repetition
+            repetition_guard = ""
+            if session.last_ai_response:
+                repetition_guard = f"\n\nIMPORTANT: Your last response was: \"{session.last_ai_response}\"\nDO NOT repeat this. Say something different or move the conversation forward.\n"
+            
+            system_prompt = f"{SALES_AGENT_RULES}{intent_hint}{repetition_guard}\n\n{base_prompt}"
+            
+            try:
+                llm_start = datetime.now()
+                ai_response = await llm.generate_response(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    temperature=session.agent_config.get("temperature", 0.7),
+                    max_tokens=80  # Increased from 40 for better responses
+                )
+                llm_duration = (datetime.now() - llm_start).total_seconds() * 1000
+                logger.info(f"🤖 LLM response ({llm_duration:.0f}ms): {ai_response}")
+                
+                # Check if LLM repeated itself despite instructions
+                if session.last_ai_response and ai_response.strip().lower() == session.last_ai_response.strip().lower():
+                    logger.warning(f"🔄 LLM repeated itself - using fallback")
+                    ai_response = "I understand. Is there anything specific you'd like to know?"
+                    
+            except Exception as e:
+                logger.error(f"LLM error: {e}")
+                ai_response = "Sorry, I'm having a technical issue. Can you say that again?"
+            finally:
+                # Clear LLM in-flight flag
+                session.llm_in_flight = False
+        
+        # Save AI response and track it
+        session.last_ai_response = ai_response
+        await db.add_transcript(call_id=session.call_id, speaker="agent", text=ai_response)
+        
+        # Send AI response with barge-in support
+        session.state = ConversationState.AI_SPEAKING
+        session.interrupted = False
+        await send_ai_response_with_bargein(websocket, session, ai_response, tts, db, session.call_id)
+        
+        # Mark AI turn complete for turn tracking
+        session.mark_ai_turn_complete()
+        
+        # Ready for next input (NO SLEEP!)
+        session.reset_for_listening()
+        logger.info("🟢 AI finished - ready for user input")
         
     except Exception as e:
-        logger.error(f"Error processing user speech: {e}")
+        logger.error(f"Error in process_user_speech_fast: {e}", exc_info=True)
+        session.reset_for_listening()
 
 
-async def send_ai_response(
+async def send_ai_response_with_bargein(
     websocket: WebSocket,
-    stream_sid: str,
+    session: CallSession,
     text: str,
     tts: TTSClient,
     db: SupabaseDB,
     call_id: str
 ) -> float:
-    """Generate speech and send to Twilio. Returns audio duration in seconds."""
+    """
+    Send AI audio with BARGE-IN support
+    
+    While streaming audio:
+    - Check session.interrupted flag
+    - If True: Stop immediately, user is speaking
+    - NO post-audio sleep!
+    """
     try:
         # Generate speech
-        audio_file = tts.generate_speech(text)
+        tts_start = datetime.now()
+        sentence_chunks = tts.generate_speech_streaming(text)
+        tts_gen_time = (datetime.now() - tts_start).total_seconds() * 1000
+        logger.info(f"⚡ TTS generated in {tts_gen_time:.0f}ms")
         
-        if not audio_file:
+        if not sentence_chunks:
             logger.error("TTS failed to generate audio")
-            return
+            return 0.0
         
-        # Read WAV file
-        import wave
-        with wave.open(audio_file, 'rb') as wav:
-            # Get audio params
-            channels = wav.getnchannels()
-            sample_width = wav.getsampwidth()
-            framerate = wav.getframerate()
+        total_duration = 0.0
+        
+        for sentence_text, wav_bytes in sentence_chunks:
+            # Check for barge-in before each sentence
+            if session.interrupted:
+                logger.info(f"🛑 BARGE-IN: Stopping TTS mid-stream")
+                break
             
-            # Read frames
-            audio_pcm = wav.readframes(wav.getnframes())
-        
-        # Cleanup temp file
-        try:
-            os.unlink(audio_file)
-        except:
-            pass
-        
-        # Convert to Twilio's format (8kHz mono mulaw)
-        # First, resample if needed
-        if framerate != TWILIO_SAMPLE_RATE:
-            # Simple resampling using audioop
-            audio_pcm, _ = audioop.ratecv(
-                audio_pcm,
-                sample_width,
-                channels,
-                framerate,
-                TWILIO_SAMPLE_RATE,
-                None
-            )
-        
-        # Convert stereo to mono if needed
-        if channels == 2:
-            audio_pcm = audioop.tomono(audio_pcm, sample_width, 1, 1)
-        
-        # Convert to mulaw (remove normalization - causes distortion)
-        audio_mulaw = audioop.lin2ulaw(audio_pcm, sample_width)
-        
-        # Send to Twilio in chunks
-        # Twilio expects chunks of 20ms worth of audio
-        chunk_size = int(TWILIO_SAMPLE_RATE * 0.02)  # 20ms = 160 bytes at 8kHz
-        
-        for i in range(0, len(audio_mulaw), chunk_size):
-            chunk = audio_mulaw[i:i + chunk_size]
-            payload = base64.b64encode(chunk).decode('utf-8')
+            logger.debug(f"Streaming: {sentence_text[:30]}...")
             
-            message = {
-                "event": "media",
-                "streamSid": stream_sid,
-                "media": {
-                    "payload": payload
+            # Convert WAV to Twilio format
+            wav_buffer = io.BytesIO(wav_bytes)
+            with wave.open(wav_buffer, 'rb') as wav:
+                channels = wav.getnchannels()
+                sample_width = wav.getsampwidth()
+                framerate = wav.getframerate()
+                audio_pcm = wav.readframes(wav.getnframes())
+            
+            # Resample to 8kHz
+            if framerate != TWILIO_SAMPLE_RATE:
+                audio_pcm, _ = audioop.ratecv(audio_pcm, sample_width, channels, framerate, TWILIO_SAMPLE_RATE, None)
+            
+            # Mono
+            if channels == 2:
+                audio_pcm = audioop.tomono(audio_pcm, sample_width, 1, 1)
+            
+            # Convert to mulaw
+            audio_mulaw = audioop.lin2ulaw(audio_pcm, sample_width)
+            
+            # Send in 20ms chunks
+            chunk_size = int(TWILIO_SAMPLE_RATE * 0.02)
+            
+            for i in range(0, len(audio_mulaw), chunk_size):
+                # Check barge-in during streaming
+                if session.interrupted:
+                    logger.info("🛑 BARGE-IN during chunk streaming")
+                    break
+                
+                chunk = audio_mulaw[i:i + chunk_size]
+                payload = base64.b64encode(chunk).decode('utf-8')
+                
+                message = {
+                    "event": "media",
+                    "streamSid": session.stream_sid,
+                    "media": {"payload": payload}
                 }
-            }
+                
+                try:
+                    await websocket.send_text(json.dumps(message))
+                except Exception as ws_error:
+                    logger.warning(f"WebSocket send failed (connection closed?): {ws_error}")
+                    return total_duration
             
-            await websocket.send_text(json.dumps(message))
+            if session.interrupted:
+                break
             
-            # No delay - send as fast as possible, Twilio buffers it
+            sentence_duration = len(audio_mulaw) / TWILIO_SAMPLE_RATE
+            total_duration += sentence_duration
+            logger.debug(f"Sent sentence: {sentence_duration:.2f}s")
         
-        # Calculate audio duration (bytes / sample_rate)
-        audio_duration_seconds = len(audio_mulaw) / TWILIO_SAMPLE_RATE
+        # ==================== SET ECHO PROTECTION WINDOW ====================
+        # This is CRITICAL: Mark when TTS finished so VAD ignores echo for 300ms
+        session.tts_end_time = datetime.now()
+        logger.debug(f"🔇 Echo protection window started (300ms)")
         
-        # Mark sent
-        logger.info(f"Sent AI speech to Twilio: {len(audio_mulaw)} bytes ({audio_duration_seconds:.1f}s)")
+        if session.interrupted:
+            logger.info(f"⚡ AI speech interrupted after {total_duration:.1f}s")
+        else:
+            logger.info(f"✅ AI speech complete: {total_duration:.1f}s | Echo window active")
         
-        return audio_duration_seconds
+        return total_duration
         
     except Exception as e:
-        logger.error(f"Error sending AI response: {e}")
+        logger.error(f"Error in send_ai_response_with_bargein: {e}", exc_info=True)
+        # Still set echo protection even on error
+        session.tts_end_time = datetime.now()
         return 0.0
 
 
@@ -930,9 +1259,10 @@ ngrok_public_url = None
 @app.on_event("startup")
 async def startup_event():
     """Initialize services and start ngrok tunnel"""
-    global ngrok_public_url, silero_vad_model
+    global ngrok_public_url
     
-    logger.info("Starting RelayX Voice Gateway...")
+    logger.info("Starting RelayX Voice Gateway v2.0 (Vapi-style architecture)...")
+    logger.info("Features: VAD edge-trigger, barge-in support, intent pre-classification")
     
     # Start ngrok tunnel automatically
     try:
@@ -942,18 +1272,14 @@ async def startup_event():
         
         logger.info("Starting ngrok tunnel on port 8001...")
         
-        # Start ngrok with configuration to avoid browser warning
-        # Use --log=stdout --log-level=info for debugging if needed
         subprocess.Popen(
             ["ngrok", "http", "8001", "--log=stdout"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
         
-        # Wait for ngrok to start
         time.sleep(3)
         
-        # Get public URL from ngrok API
         response = requests.get("http://localhost:4040/api/tunnels")
         tunnels = response.json()["tunnels"]
         
@@ -967,23 +1293,8 @@ async def startup_event():
         logger.warning(f"Could not start ngrok automatically: {e}")
         logger.info("You can start ngrok manually: ngrok http 8001")
     
-    # Load Silero VAD model
-    try:
-        logger.info("Loading Silero VAD model...")
-        silero_vad_model, _ = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            force_reload=False,
-            onnx=False
-        )
-        silero_vad_model.eval()  # Set to evaluation mode
-        logger.info("✅ Silero VAD ready (smart speech detection enabled)")
-    except Exception as e:
-        logger.error(f"Failed to load Silero VAD: {e}")
-        logger.warning("Falling back to energy-based silence detection")
-        silero_vad_model = None
+    logger.info("✅ WebRTC VAD ready (240ms speech start, 300ms speech end)")
     
-    # Pre-load AI models
     try:
         logger.info("Loading STT client...")
         stt = get_stt_client()
@@ -998,7 +1309,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to load TTS: {e}")
     
-    logger.info("🎉 Voice Gateway startup complete")
+    logger.info("🎉 Voice Gateway startup complete - Target: <4s response time")
 
 
 if __name__ == "__main__":
@@ -1011,6 +1322,6 @@ if __name__ == "__main__":
         "voice_gateway:app",
         host=host,
         port=port,
-        reload=False,  # Disable reload to keep models in memory
+        reload=False,
         log_level="info"
     )
