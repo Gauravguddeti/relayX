@@ -10,15 +10,15 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const success = login(email, password);
+    const success = await login(email, password);
     if (success) {
       navigate('/dashboard');
     } else {
-      setError('Invalid credentials. Use: test@relayx.ai / test123');
+      setError('Invalid credentials. Please check your email and password.');
     }
   };
 

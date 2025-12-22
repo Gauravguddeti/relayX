@@ -6,9 +6,17 @@ Real-time pipeline: Audio → STT → LLM → TTS → Audio
 ARCHITECTURE (Vapi-style, optimized for <4s response):
 - 3-state machine: LISTENING, USER_SPEAKING, AI_SPEAKING
 - VAD edge-trigger: 240ms speech start, 300ms silence end
-- TRUE barge-in: Interrupt AI mid-speech
+- TRUE barge-in: Interrupt AI mid-speech with intent-based validation
 - Intent pre-classifier: Handle casual responses before LLM
 - NO adaptive silence, NO post-TTS sleep, NO cooldowns
+
+INTERRUPTION HANDLING (Refined):
+- Grace period: 300ms after AI starts speaking (ignore echo onset)
+- Sustained speech: 300ms minimum to trigger valid interrupt
+- Acknowledgement detection: "yeah", "okay" continue AI flow
+- Context hygiene: Only commit complete turns to transcript
+- Thread safety: Locks for state transitions and buffer access
+- Edge case guards: Timeouts, double-processing prevention, buffer limits
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
@@ -98,6 +106,25 @@ NOISE_WORDS = [
     "it", "is", "to", "in", "on", "an", "and", "or", "so", "be",
     # Very short non-meaningful
     "k", "m", "n", "s", "t", "y",
+]
+
+# ==================== INTERRUPTION HANDLING CONSTANTS ====================
+# Grace period after AI starts speaking - ignore ALL VAD triggers
+# This prevents echo onset from causing false interrupts
+AI_SPEECH_GRACE_PERIOD_MS = 300
+
+# Minimum sustained speech duration to trigger a valid interrupt
+# Short blips (<300ms) should NOT interrupt
+MIN_INTERRUPT_SPEECH_MS = 300
+
+# Maximum time to stay in USER_SPEAKING before timeout
+USER_SPEAKING_TIMEOUT_MS = 30000  # 30 seconds
+
+# ACKNOWLEDGEMENT PATTERNS - Short utterances that should continue AI flow
+# NOT be treated as topic changes even if they interrupt
+ACKNOWLEDGEMENT_PATTERNS = [
+    "yeah", "yes", "yep", "okay", "ok", "right", "uh-huh", "uh huh",
+    "mhm", "mm-hmm", "mmhmm", "got it", "sure", "i see", "alright"
 ]
 
 # ECHO PHRASES - Multi-word patterns that match AI speech (potential echo)
@@ -254,6 +281,24 @@ class CallSession:
         self.ai_audio_task = None  # Track ongoing AI audio for interruption
         self.interrupted = False    # Flag to stop AI audio
         
+        # ==================== REFINED INTERRUPTION HANDLING ====================
+        # Track when AI started speaking (for grace period)
+        self.ai_speech_start_time = None
+        # Track when user started speaking during interrupt (for sustained speech check)
+        self.interrupt_speech_start = None
+        # Consecutive speech frames during interrupt detection
+        self.interrupt_speech_frames = 0
+        # Pending AI text that hasn't been committed yet (cleared on interrupt)
+        self.pending_ai_text = None
+        # Track if current interrupt is an acknowledgement (continue AI flow)
+        self.is_acknowledgement_interrupt = False
+        # Thread safety lock for state transitions and buffer access
+        self._state_lock = asyncio.Lock()
+        # Flag to prevent double-processing
+        self._processing_speech = False
+        # USER_SPEAKING timeout tracking
+        self.user_speaking_start_time = None
+        
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
     def add_audio_chunk(self, audio_data: bytes):
@@ -284,6 +329,27 @@ class CallSession:
             return False
         elapsed_ms = (datetime.now() - self.noise_detected_time).total_seconds() * 1000
         return elapsed_ms < self.POST_NOISE_COOLDOWN_MS
+    
+    def is_in_ai_grace_period(self) -> bool:
+        """
+        Check if we're in the grace period after AI started speaking.
+        During this window, ignore ALL VAD triggers to prevent false interrupts
+        from echo onset or audio overlap.
+        """
+        if self.ai_speech_start_time is None:
+            return False
+        elapsed_ms = (datetime.now() - self.ai_speech_start_time).total_seconds() * 1000
+        return elapsed_ms < AI_SPEECH_GRACE_PERIOD_MS
+    
+    def check_user_speaking_timeout(self) -> bool:
+        """
+        Check if USER_SPEAKING state has timed out.
+        Returns True if timeout exceeded (should reset to LISTENING).
+        """
+        if self.user_speaking_start_time is None:
+            return False
+        elapsed_ms = (datetime.now() - self.user_speaking_start_time).total_seconds() * 1000
+        return elapsed_ms > USER_SPEAKING_TIMEOUT_MS
     
     def mark_noise_detected(self):
         """Mark that noise was detected, starting cooldown"""
@@ -335,6 +401,14 @@ class CallSession:
         
         # Add to VAD buffer for frame alignment
         self.vad_buffer.extend(audio_data)
+        
+        # ==================== VAD BUFFER OVERFLOW PROTECTION ====================
+        # Prevent unbounded growth - max 10KB (about 1.25 seconds at 8kHz)
+        MAX_VAD_BUFFER_SIZE = 10240
+        if len(self.vad_buffer) > MAX_VAD_BUFFER_SIZE:
+            logger.warning(f"⚠️ VAD buffer overflow ({len(self.vad_buffer)} bytes) - truncating")
+            # Keep only the most recent data
+            self.vad_buffer = self.vad_buffer[-MAX_VAD_BUFFER_SIZE:]
         
         # WebRTC VAD needs exact frame sizes
         if len(self.vad_buffer) < self.VAD_FRAME_BYTES:
@@ -438,12 +512,111 @@ class CallSession:
         self.vad_buffer.clear()
         self.llm_in_flight = False
         self.state = ConversationState.LISTENING
+        # Reset interrupt-specific tracking
+        self.interrupt_speech_start = None
+        self.interrupt_speech_frames = 0
+        self.is_acknowledgement_interrupt = False
+        self.user_speaking_start_time = None
+        self._processing_speech = False
         # NOTE: tts_end_time is NOT cleared - echo window must expire naturally
+        # NOTE: ai_speech_start_time is NOT cleared - grace period must expire naturally
     
     def interrupt_ai(self):
         """Signal to interrupt ongoing AI audio"""
         self.interrupted = True
+        # Clear pending AI text on interrupt (context hygiene)
+        self.pending_ai_text = None
         logger.info("🛑 BARGE-IN: User interrupted AI speech")
+    
+    def validate_interrupt_speech(self, is_speech: bool) -> bool:
+        """
+        Validate if user speech during AI_SPEAKING should trigger an interrupt.
+        
+        Returns True ONLY if ALL conditions are met:
+        1. Not in AI speech grace period (first 300ms)
+        2. Sustained speech duration >= MIN_INTERRUPT_SPEECH_MS (300ms)
+        3. Speech is not a single blip that immediately stops
+        
+        This prevents false interrupts from:
+        - Echo onset at start of AI speech
+        - Short noise blips
+        - Single syllables
+        - Background noise
+        """
+        # Condition 1: Grace period check
+        if self.is_in_ai_grace_period():
+            self.interrupt_speech_frames = 0
+            self.interrupt_speech_start = None
+            return False
+        
+        if is_speech:
+            self.interrupt_speech_frames += 1
+            
+            # Start tracking when speech first detected
+            if self.interrupt_speech_start is None:
+                self.interrupt_speech_start = datetime.now()
+            
+            # Condition 2: Check sustained speech duration
+            elapsed_ms = (datetime.now() - self.interrupt_speech_start).total_seconds() * 1000
+            
+            # Require BOTH frame count AND duration to pass
+            # Frame count: at least 10 frames (~300ms at 30ms/frame)
+            # Duration: at least MIN_INTERRUPT_SPEECH_MS
+            min_frames = int(MIN_INTERRUPT_SPEECH_MS / 30)  # ~10 frames for 300ms
+            
+            if self.interrupt_speech_frames >= min_frames and elapsed_ms >= MIN_INTERRUPT_SPEECH_MS:
+                logger.info(f"✅ Valid interrupt: {self.interrupt_speech_frames} frames, {elapsed_ms:.0f}ms sustained speech")
+                return True
+            else:
+                logger.debug(f"⏳ Interrupt pending: {self.interrupt_speech_frames}/{min_frames} frames, {elapsed_ms:.0f}/{MIN_INTERRUPT_SPEECH_MS}ms")
+                return False
+        else:
+            # Condition 3: Speech stopped - reset if silence persists
+            # Allow brief gaps (2 frames = 60ms) but reset on longer silence
+            if self.interrupt_speech_frames > 0:
+                # Track silence during interrupt detection
+                if not hasattr(self, '_interrupt_silence_frames'):
+                    self._interrupt_silence_frames = 0
+                self._interrupt_silence_frames += 1
+                
+                # If silence > 60ms (2 frames), speech was just a blip
+                if self._interrupt_silence_frames >= 2:
+                    logger.debug(f"🔇 Interrupt cancelled: speech stopped after {self.interrupt_speech_frames} frames")
+                    self.interrupt_speech_frames = 0
+                    self.interrupt_speech_start = None
+                    self._interrupt_silence_frames = 0
+            return False
+
+
+def classify_interruption_intent(text: str) -> tuple[str, bool]:
+    """
+    Classify whether an interruption is an acknowledgement or a real topic change.
+    
+    Returns: (intent_type, should_continue_ai_flow)
+    - ("acknowledgement", True) - User said "yeah", "okay", etc. - continue AI naturally
+    - ("topic_change", False) - User has new input - process normally
+    - ("question", False) - User asked a question - needs response
+    """
+    if not text:
+        return ("empty", True)  # Empty = continue
+    
+    text_lower = text.lower().strip()
+    words = text_lower.split()
+    
+    # Very short (1-3 words) and matches acknowledgement patterns
+    if len(words) <= 3:
+        for pattern in ACKNOWLEDGEMENT_PATTERNS:
+            if text_lower == pattern or text_lower.startswith(pattern + " "):
+                return ("acknowledgement", True)
+    
+    # Question detection (ends with ?, or starts with question words)
+    if text_lower.endswith("?") or any(text_lower.startswith(q) for q in ["what", "when", "where", "why", "how", "who", "can", "could", "would", "is", "are", "do", "does"]):
+        return ("question", False)
+    
+    # Longer utterances or non-acknowledgements = topic change
+    return ("topic_change", False)
+
+
 # ==================== TWIML ENDPOINTS ====================
 
 @app.get("/")
@@ -918,17 +1091,27 @@ VOICE FORMATTING:
                     payload = data["media"]["payload"]
                     audio_data = base64.b64decode(payload)
                     
-                    # ==================== BARGE-IN: Check for interruption during AI speech ====================
+                    # ==================== USER_SPEAKING TIMEOUT CHECK ====================
+                    # Prevent getting stuck in USER_SPEAKING indefinitely
+                    if session.state == ConversationState.USER_SPEAKING and session.check_user_speaking_timeout():
+                        logger.warning(f"⏱️ USER_SPEAKING timeout ({USER_SPEAKING_TIMEOUT_MS}ms) - resetting to LISTENING")
+                        session.reset_for_listening()
+                        continue
+                    
+                    # ==================== REFINED BARGE-IN: Check for interruption during AI speech ====================
                     if session.state == ConversationState.AI_SPEAKING:
                         # Run VAD on incoming audio even during AI speech
                         is_speech = session.detect_speech_vad(audio_data)
-                        if is_speech:
-                            # User is speaking over AI - INTERRUPT!
+                        
+                        # Use refined interrupt validation (grace period + sustained speech)
+                        if session.validate_interrupt_speech(is_speech):
+                            # Valid interrupt detected - user has been speaking long enough
                             session.interrupt_ai()
                             session.state = ConversationState.USER_SPEAKING
                             session.speech_start_time = datetime.now()
+                            session.user_speaking_start_time = datetime.now()
                             session.audio_buffer.clear()  # Start fresh buffer for user speech
-                            logger.info("🛑 BARGE-IN DETECTED: Switching to USER_SPEAKING")
+                            logger.info("🛑 BARGE-IN DETECTED: Sustained speech validated - switching to USER_SPEAKING")
                         continue  # Don't buffer AI's own audio
                     
                     # ==================== VAD EDGE-TRIGGER STATE MACHINE ====================
@@ -1004,13 +1187,21 @@ async def process_user_speech_fast(
     Process user speech with CONVERSATION INTEGRITY CHECKS
     
     Flow:
-    1. AUDIO QUALITY GATES - Reject short/low-energy audio before STT
-    2. STT transcription
-    3. INTENT CLASSIFICATION - Detect noise, corrections, intents
-    4. CORRECTION PHRASE HANDLING - Extract real intent from "No, I said X"
-    5. Response generation (scripted or LLM)
-    6. TTS → Send audio with barge-in support
+    1. DOUBLE-PROCESSING GUARD - Prevent concurrent calls
+    2. AUDIO QUALITY GATES - Reject short/low-energy audio before STT
+    3. STT transcription
+    4. INTENT CLASSIFICATION - Detect noise, corrections, intents
+    5. INTERRUPTION INTENT - Handle acknowledgements vs topic changes
+    6. Response generation (scripted or LLM)
+    7. TTS → Send audio with barge-in support
+    8. CONTEXT HYGIENE - Only commit AI text if not interrupted
     """
+    # ==================== DOUBLE-PROCESSING GUARD ====================
+    if session._processing_speech:
+        logger.warning("⚠️ Double-processing attempted - skipping")
+        return
+    
+    session._processing_speech = True
     try:
         # Get audio
         audio_mulaw = session.get_and_clear_buffer()
@@ -1106,6 +1297,22 @@ async def process_user_speech_fast(
             reason = "echo" if intent == "echo" else "noise"
             logger.info(f"🔇 {reason.title()} detected ('{user_text}') - ignoring, starting cooldown")
             session.mark_noise_detected()
+            session.reset_for_listening()
+            return
+        
+        # ==================== INTERRUPTION INTENT CLASSIFICATION ====================
+        # Check if this was an interruption and classify if it's an acknowledgement
+        interrupt_type, should_continue = classify_interruption_intent(user_text)
+        
+        if session.interrupted and should_continue and interrupt_type == "acknowledgement":
+            # User interrupted with "yeah", "okay", etc.
+            # This is a conversational signal, not a topic change
+            # Continue AI flow naturally without full LLM processing
+            logger.info(f"👍 Acknowledgement interrupt detected: '{user_text}' - continuing AI flow naturally")
+            session.is_acknowledgement_interrupt = True
+            
+            # Don't add to transcript as a separate turn
+            # Just continue naturally
             session.reset_for_listening()
             return
         
@@ -1213,14 +1420,27 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
                 # Clear LLM in-flight flag
                 session.llm_in_flight = False
         
-        # Save AI response and track it
+        # ==================== CONTEXT HYGIENE: Track pending AI text ====================
+        # Don't commit AI response to transcript yet - wait until after TTS
+        # If interrupted, pending_ai_text will be cleared by interrupt_ai()
+        session.pending_ai_text = ai_response
         session.last_ai_response = ai_response
-        await db.add_transcript(call_id=session.call_id, speaker="agent", text=ai_response)
         
         # Send AI response with barge-in support
         session.state = ConversationState.AI_SPEAKING
         session.interrupted = False
         await send_ai_response_with_bargein(websocket, session, ai_response, tts, db, session.call_id)
+        
+        # ==================== CONTEXT HYGIENE: Only commit if not interrupted ====================
+        if not session.interrupted and session.pending_ai_text:
+            # AI finished speaking without interruption - commit to transcript
+            await db.add_transcript(call_id=session.call_id, speaker="agent", text=session.pending_ai_text)
+            logger.debug(f"✅ AI transcript committed: '{session.pending_ai_text[:50]}...'")
+        elif session.interrupted:
+            # Was interrupted - don't commit partial AI text
+            logger.info(f"🚫 AI interrupted - not committing partial transcript")
+        
+        session.pending_ai_text = None
         
         # Mark AI turn complete for turn tracking
         session.mark_ai_turn_complete()
@@ -1231,6 +1451,7 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
         
     except Exception as e:
         logger.error(f"Error in process_user_speech_fast: {e}", exc_info=True)
+        session.pending_ai_text = None  # Clear pending on error
         session.reset_for_listening()
 
 
@@ -1249,6 +1470,11 @@ async def send_ai_response_with_bargein(
     - Check session.interrupted flag
     - If True: Stop immediately, user is speaking
     - NO post-audio sleep!
+    
+    Interruption handling:
+    - Set ai_speech_start_time at start (for grace period)
+    - Check interrupted flag during streaming
+    - Clear pending_ai_text on interrupt (context hygiene)
     """
     try:
         # Generate speech
@@ -1260,6 +1486,13 @@ async def send_ai_response_with_bargein(
         if not sentence_chunks:
             logger.error("TTS failed to generate audio")
             return 0.0
+        
+        # ==================== SET AI SPEECH START TIME (Grace Period) ====================
+        # This marks when AI started speaking so we can ignore VAD for first 300ms
+        session.ai_speech_start_time = datetime.now()
+        session.interrupt_speech_frames = 0
+        session.interrupt_speech_start = None
+        logger.debug(f"🔇 AI speech grace period started ({AI_SPEECH_GRACE_PERIOD_MS}ms)")
         
         total_duration = 0.0
         

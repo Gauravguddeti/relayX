@@ -6,6 +6,7 @@ import RecentCallsList from '../components/dashboard/RecentCallsList';
 import UpcomingEvents from '../components/dashboard/UpcomingEvents';
 import CalendarWidget from '../components/dashboard/CalendarWidget';
 import NewCallModal from '../components/dashboard/NewCallModal';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DashboardStats {
   totalCalls: number;
@@ -16,6 +17,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { userId } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
     totalCalls: 0,
     interestedCalls: 0,
@@ -27,14 +29,18 @@ export default function Dashboard() {
   const [showNewCallModal, setShowNewCallModal] = useState(false);
 
   useEffect(() => {
-    fetchDashboardStats();
-  }, []);
+    if (userId) {
+      fetchDashboardStats();
+    }
+  }, [userId]);
 
   async function fetchDashboardStats() {
+    if (!userId) return;
+
     try {
       setLoading(true);
-      // Fetch recent calls (last 24h)
-      const response = await fetch('/calls?limit=100');
+      // Fetch calls for current user only
+      const response = await fetch(`/calls?user_id=${userId}&limit=100`);
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
         setLoading(false);

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RelayX Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .client-card {
+            transition: all 0.2s;
+        }
+        .client-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .client-card.selected {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <nav class="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold">RelayX Admin Dashboard</h1>
+                    <p class="text-sm text-blue-100">Multi-Client Management • <span id="adminUsername">Admin</span></p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="refreshData()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                        🔄 Refresh
+                    </button>
+                    <button onclick="viewAnalytics()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                        📊 Analytics
+                    </button>
+                    <button onclick="logout()" class="px-4 py-2 bg-red-500/80 hover:bg-red-600 rounded-lg transition">
+                        🚪 Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-6 py-8">
+        <!-- Analytics Overview -->
+        <div id="analyticsOverview" class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-600">Total Clients</div>
+                <div class="text-3xl font-bold text-blue-600" id="totalClients">-</div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-600">Active Clients</div>
+                <div class="text-3xl font-bold text-green-600" id="activeClients">-</div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-600">Total Calls Today</div>
+                <div class="text-3xl font-bold text-purple-600" id="callsToday">-</div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-600">Success Rate</div>
+                <div class="text-3xl font-bold text-indigo-600" id="successRate">-</div>
+            </div>
+        </div>
+
+        <!-- Client Filter -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-gray-800">👥 Clients</h2>
+                <div class="flex items-center space-x-3">
+                    <input type="text" id="searchClients" placeholder="Search clients..." class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <button onclick="selectAllClients()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                        View All Agents
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Client Cards Grid -->
+            <div id="clientCards" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div class="text-center text-gray-500 py-12 col-span-full">Loading clients...</div>
+            </div>
+        </div>
+
+        <!-- Selected Client Details -->
+        <div id="clientDetailPanel" class="bg-white rounded-lg shadow p-6 mb-8 hidden">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800" id="selectedClientName">-</h2>
+                    <p class="text-gray-600" id="selectedClientInfo">-</p>
+                </div>
+                <button onclick="closeClientDetail()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    ✕ Close
+                </button>
+            </div>
+            
+            <!-- Client Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-blue-50 rounded-lg p-4">
+                    <div class="text-sm text-blue-600 font-medium">Agents</div>
+                    <div class="text-2xl font-bold text-blue-700" id="clientAgentCount">-</div>
+                </div>
+                <div class="bg-green-50 rounded-lg p-4">
+                    <div class="text-sm text-green-600 font-medium">Total Calls</div>
+                    <div class="text-2xl font-bold text-green-700" id="clientTotalCalls">-</div>
+                </div>
+                <div class="bg-purple-50 rounded-lg p-4">
+                    <div class="text-sm text-purple-600 font-medium">Success Rate</div>
+                    <div class="text-2xl font-bold text-purple-700" id="clientSuccessRate">-</div>
+                </div>
+                <div class="bg-orange-50 rounded-lg p-4">
+                    <div class="text-sm text-orange-600 font-medium">Avg Duration</div>
+                    <div class="text-2xl font-bold text-orange-700" id="clientAvgDuration">-</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="border-b border-gray-200 mb-6">
+                <div class="flex space-x-6">
+                    <button onclick="showTab('agents')" class="tab-button px-4 py-2 border-b-2 border-blue-600 text-blue-600 font-medium">
+                        Agents
+                    </button>
+                    <button onclick="showTab('calls')" class="tab-button px-4 py-2 border-b-2 border-transparent text-gray-600 hover:text-gray-800">
+                        Recent Calls
+                    </button>
+                    <button onclick="showTab('audit')" class="tab-button px-4 py-2 border-b-2 border-transparent text-gray-600 hover:text-gray-800">
+                        Audit Trail
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab Content -->
+            <div id="agentsTab" class="tab-content">
+                <div id="clientAgents">Loading agents...</div>
+            </div>
+            <div id="callsTab" class="tab-content hidden">
+                <div id="clientCalls">Loading calls...</div>
+            </div>
+            <div id="auditTab" class="tab-content hidden">
+                <div id="clientAudit">Loading audit logs...</div>
+            </div>
+        </div>
+
+        <!-- All Agents Section (Admin View) -->
+        <div id="allAgentsSection" class="bg-white rounded-lg shadow p-6 mb-8">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">🤖 <span id="agentsSectionTitle">All Agents</span></h2>
+                    <p class="text-sm text-gray-600">Manage AI agents across all clients</p>
+                </div>
+                <a href="/static/dashboard.html" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    + New Agent
+                </a>
+            </div>
+            <div id="agentsList">Loading agents...</div>
+        </div>
+
+        <!-- System Monitor -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">🖥️ System Monitor</h2>
+                    <p class="text-sm text-gray-600">Real-time system activity</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button onclick="toggleBulkOperations()" class="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition">
+                        🗑️ Bulk Operations
+                    </button>
+                    <button onclick="exportData()" class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition">
+                        📥 Export Data
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Bulk Operations Panel -->
+            <div id="bulkOpsPanel" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 hidden">
+                <h3 class="font-semibold text-yellow-800 mb-3">⚠️ Bulk Operations</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Delete calls older than:</label>
+                        <select id="bulkDeleteDays" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            <option value="30">30 days</option>
+                            <option value="60">60 days</option>
+                            <option value="90" selected>90 days</option>
+                            <option value="180">180 days</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="bulkDeleteCalls()" class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                            Delete Old Calls
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <iframe src="/static/logs.html" class="w-full h-96 border border-gray-200 rounded-lg"></iframe>
+        </div>
+    </div>
+
+    <script>
+        let selectedClientId = null;
+        let allClients = [];
+        let allAgents = [];
+        let currentTab = 'agents';
+        let adminToken = localStorage.getItem('admin_token');
+
+        // Check authentication on page load
+        async function checkAuth() {
+            if (!adminToken) {
+                window.location.href = '/static/admin-login.html';
+                return false;
+            }
+
+            try {
+                const response = await fetch('/admin/verify', {
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+                const data = await response.json();
+                
+                if (!data.success) {
+                    localStorage.removeItem('admin_token');
+                    window.location.href = '/static/admin-login.html';
+                    return false;
+                }
+                
+                document.getElementById('adminUsername').textContent = data.username;
+                return true;
+            } catch (error) {
+                localStorage.removeItem('admin_token');
+                window.location.href = '/static/admin-login.html';
+                return false;
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/admin/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+            
+            localStorage.removeItem('admin_token');
+            window.location.href = '/static/admin-login.html';
+        }
+
+        async function loadData() {
+            await Promise.all([
+                loadAnalytics(),
+                loadClients(),
+                loadAgents()
+            ]);
+        }
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/admin/analytics');
+                const data = await response.json();
+                
+                document.getElementById('totalClients').textContent = data.total_clients;
+                document.getElementById('activeClients').textContent = data.active_clients;
+                document.getElementById('callsToday').textContent = data.calls_today;
+                document.getElementById('successRate').textContent = data.success_rate.toFixed(1) + '%';
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+            }
+        }
+
+        async function loadClients() {
+            try {
+                const response = await fetch('/admin/clients');
+                allClients = await response.json();
+                
+                displayClients(allClients);
+            } catch (error) {
+                console.error('Error loading clients:', error);
+                document.getElementById('clientCards').innerHTML = '<div class="text-center text-red-500 py-12 col-span-full">Error loading clients</div>';
+            }
+        }
+
+        function displayClients(clients) {
+            const container = document.getElementById('clientCards');
+            if (clients.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-12 col-span-full">No clients found</div>';
+                return;
+            }
+
+            container.innerHTML = clients.map(client => `
+                <div class="client-card bg-white border-2 border-gray-200 rounded-lg p-4 cursor-pointer ${selectedClientId === client.id ? 'selected' : ''}"
+                     onclick="selectClient('${client.id}')">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xl">
+                            ${(client.name || 'U')[0].toUpperCase()}
+                        </div>
+                        <div class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                            Active
+                        </div>
+                    </div>
+                    <h3 class="font-semibold text-gray-800 mb-1">${client.name || 'Unknown'}</h3>
+                    <p class="text-sm text-gray-500 mb-3">${client.company || client.email}</p>
+                    
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-blue-50 rounded px-2 py-1">
+                            <div class="text-blue-600 font-medium">${client.agent_count}</div>
+                            <div class="text-blue-500">Agents</div>
+                        </div>
+                        <div class="bg-green-50 rounded px-2 py-1">
+                            <div class="text-green-600 font-medium">${client.total_calls}</div>
+                            <div class="text-green-500">Calls</div>
+                        </div>
+                    </div>
+                    
+                    ${client.active_calls > 0 ? `
+                        <div class="mt-2 text-xs text-orange-600 font-medium">
+                            🟢 ${client.active_calls} active call(s)
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function selectClient(clientId) {
+            selectedClientId = clientId;
+            
+            // Update client cards visual selection
+            document.querySelectorAll('.client-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            event.target.closest('.client-card').classList.add('selected');
+            
+            // Load client details
+            await loadClientDetail(clientId);
+            
+            // Show detail panel
+            document.getElementById('clientDetailPanel').classList.remove('hidden');
+            
+            // Filter agents
+            loadAgents(clientId);
+        }
+
+        function selectAllClients() {
+            selectedClientId = null;
+            document.querySelectorAll('.client-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.getElementById('clientDetailPanel').classList.add('hidden');
+            document.getElementById('agentsSectionTitle').textContent = 'All Agents';
+            loadAgents();
+        }
+
+        async function loadClientDetail(clientId) {
+            try {
+                const response = await fetch(`/admin/clients/${clientId}`);
+                const client = await response.json();
+                
+                document.getElementById('selectedClientName').textContent = client.name || 'Unknown';
+                document.getElementById('selectedClientInfo').textContent = `${client.company || 'No company'} • ${client.email}`;
+                
+                document.getElementById('clientAgentCount').textContent = client.stats.total_agents;
+                document.getElementById('clientTotalCalls').textContent = client.stats.total_calls;
+                document.getElementById('clientSuccessRate').textContent = client.stats.success_rate.toFixed(1) + '%';
+                document.getElementById('clientAvgDuration').textContent = client.stats.avg_call_duration + 's';
+                
+                // Display agents
+                document.getElementById('clientAgents').innerHTML = client.agents.map(agent => `
+                    <div class="bg-gray-50 rounded-lg p-4 mb-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="font-semibold text-gray-800">${agent.name}</h4>
+                                <p class="text-sm text-gray-500">${agent.llm_model || 'Default model'}</p>
+                            </div>
+                            <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+                                ${agent.is_active ? 'Active' : 'Inactive'}
+                            </div>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-gray-500">No agents configured</p>';
+                
+                // Display recent calls
+                document.getElementById('clientCalls').innerHTML = client.recent_calls.slice(0, 10).map(call => `
+                    <div class="border-b border-gray-200 py-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="font-medium text-gray-800">${call.to_number}</div>
+                                <div class="text-sm text-gray-500">${new Date(call.created_at).toLocaleString()}</div>
+                            </div>
+                            <div class="text-xs px-2 py-1 rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-700' : call.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}">
+                                ${call.status}
+                            </div>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-gray-500">No calls yet</p>';
+                
+                // Display audit logs
+                document.getElementById('clientAudit').innerHTML = client.audit_logs.map(log => `
+                    <div class="border-b border-gray-200 py-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="font-medium text-gray-800">${log.action.replace('_', ' ')}</div>
+                                <div class="text-sm text-gray-500">${new Date(log.timestamp).toLocaleString()}</div>
+                            </div>
+                            <div class="text-xs text-gray-600">${log.details.to_number || ''}</div>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-gray-500">No activity</p>';
+                
+            } catch (error) {
+                console.error('Error loading client detail:', error);
+            }
+        }
+
+        async function loadAgents(clientId = null) {
+            try {
+                const url = clientId ? `/agents?user_id=${clientId}` : '/agents';
+                const response = await fetch(url);
+                allAgents = await response.json();
+                
+                const title = clientId ? `${allClients.find(c => c.id === clientId)?.name || 'Client'}'s Agents` : 'All Agents';
+                document.getElementById('agentsSectionTitle').textContent = title;
+                
+                displayAgents(allAgents);
+            } catch (error) {
+                console.error('Error loading agents:', error);
+                document.getElementById('agentsList').innerHTML = '<div class="text-center text-red-500 py-8">Error loading agents</div>';
+            }
+        }
+
+        function displayAgents(agents) {
+            const container = document.getElementById('agentsList');
+            if (agents.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No agents found</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${agents.map(agent => `
+                        <div class="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="text-lg font-semibold text-gray-800">${agent.name}</div>
+                                <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+                                    ${agent.is_active ? 'Active' : 'Inactive'}
+                                </div>
+                            </div>
+                            
+                            ${agent.user_name ? `
+                                <div class="mb-2 text-sm">
+                                    <div class="text-gray-600">👤 ${agent.user_name}</div>
+                                    ${agent.user_company ? `<div class="text-gray-500">🏢 ${agent.user_company}</div>` : ''}
+                                </div>
+                            ` : ''}
+                            
+                            <div class="text-xs text-gray-600 mb-2">
+                                Model: ${agent.llm_model || 'default'}
+                            </div>
+                            
+                            ${agent.template_source ? `
+                                <div class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded inline-block mb-2">
+                                    📋 ${agent.template_source}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function showTab(tabName) {
+            currentTab = tabName;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('border-blue-600', 'text-blue-600');
+                btn.classList.add('border-transparent', 'text-gray-600');
+            });
+            event.target.classList.remove('border-transparent', 'text-gray-600');
+            event.target.classList.add('border-blue-600', 'text-blue-600');
+            
+            // Show/hide tab content
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            document.getElementById(`${tabName}Tab`).classList.remove('hidden');
+        }
+
+        function closeClientDetail() {
+            document.getElementById('clientDetailPanel').classList.add('hidden');
+            selectAllClients();
+        }
+
+        function toggleBulkOperations() {
+            const panel = document.getElementById('bulkOpsPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        async function bulkDeleteCalls() {
+            const days = document.getElementById('bulkDeleteDays').value;
+            if (!confirm(`Are you sure you want to delete all calls older than ${days} days? This action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/admin/bulk/delete-old-calls?days_old=${days}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                alert(`Successfully deleted ${result.deleted_count} calls`);
+                refreshData();
+            } catch (error) {
+                alert('Error deleting calls: ' + error.message);
+            }
+        }
+
+        async function exportData() {
+            try {
+                const clientId = selectedClientId || '';
+                const response = await fetch(`/admin/bulk/export?client_id=${clientId}&data_type=all`);
+                const data = await response.json();
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `relayx-export-${new Date().toISOString()}.json`;
+                a.click();
+            } catch (error) {
+                alert('Error exporting data: ' + error.message);
+            }
+        }
+
+        async function viewAnalytics() {
+            alert('Detailed analytics dashboard coming soon!');
+        }
+
+        async function refreshData() {
+            await loadData();
+            if (selectedClientId) {
+                await loadClientDetail(selectedClientId);
+            }
+        }
+
+        // Search functionality
+        document.getElementById('searchClients').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = allClients.filter(client => 
+                (client.name || '').toLowerCase().includes(searchTerm) ||
+                (client.email || '').toLowerCase().includes(searchTerm) ||
+                (client.company || '').toLowerCase().includes(searchTerm)
+            );
+            displayClients(filtered);
+        });
+
+        // Initialize on page load
+        (async function init() {
+            const authenticated = await checkAuth();
+            if (authenticated) {
+                await loadData();
+                // Auto-refresh every 30 seconds
+                setInterval(refreshData, 30000);
+            }
+        })();
+    </script>
+</body>
+</html>

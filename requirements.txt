@@ -3,6 +3,7 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
+email-validator==2.1.0
 
 # Database  
 supabase==2.9.0
@@ -35,6 +36,10 @@ aiohttp==3.9.1
 beautifulsoup4==4.12.2
 lxml==5.1.0
 brotli==1.1.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
 
 # Logging
 loguru==0.7.2

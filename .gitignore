@@ -63,3 +63,6 @@ models/
 # ngrok
 ngrok.yml
 ngrok.log
+
+#doc
+ADMIN_CREDENTIALS.md

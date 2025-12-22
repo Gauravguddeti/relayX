@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Phone, Clock, CheckCircle, XCircle, PhoneMissed, Search, Filter, Plus } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import NewCallModal from '../components/dashboard/NewCallModal';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Call {
   id: string;
@@ -14,6 +15,7 @@ interface Call {
 }
 
 export default function Calls() {
+  const { userId } = useAuth();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
@@ -22,13 +24,18 @@ export default function Calls() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchCalls();
-  }, []);
+    if (userId) {
+      fetchCalls();
+    }
+  }, [userId]);
 
   async function fetchCalls() {
+    if (!userId) return;
+
     try {
       setLoading(true);
-      const response = await fetch('/calls?limit=100');
+      // Fetch only current user's calls
+      const response = await fetch(`/calls?user_id=${userId}&limit=100`);
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
         setCalls([]);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, Clock, CheckCircle, XCircle, PhoneMissed, PhoneIncoming } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Call {
   id: string;
@@ -12,20 +13,26 @@ interface Call {
 }
 
 export default function RecentCallsList() {
+  const { userId } = useAuth();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchCalls();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchCalls, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    if (userId) {
+      fetchCalls();
+      // Auto-refresh every 30 seconds
+      const interval = setInterval(fetchCalls, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [userId]);
 
   async function fetchCalls() {
+    if (!userId) return;
+
     try {
-      const response = await fetch('/calls?limit=10');
+      // Fetch only current user's calls
+      const response = await fetch(`/calls?user_id=${userId}&limit=10`);
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
         setCalls([]);

@@ -25,9 +25,11 @@ from dotenv import load_dotenv
 import subprocess
 import httpx
 
-# Import authentication - TEMPORARILY DISABLED
-# from auth import get_current_user_id
-# import auth_routes
+# Import authentication
+from auth import get_current_user_id
+import auth_routes
+import admin_routes
+import admin_auth
 import cal_routes
 
 # Load environment variables
@@ -43,9 +45,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Include authentication routes - TEMPORARILY DISABLED
-# auth_routes.init_supabase(None)  # Will be set after db initialization
-# app.include_router(auth_routes.router)
+# Include authentication routes
+auth_routes.init_supabase(None)  # Will be set after db initialization
+app.include_router(auth_routes.router)
+
+# Include admin routes
+app.include_router(admin_routes.router)
 
 # Include Cal.com routes
 app.include_router(cal_routes.router)
@@ -130,7 +135,63 @@ class PreviewRequest(BaseModel):
     max_tokens: int = Field(default=100, ge=50, le=300)
 
 
+# ==================== ADMIN AUTH ====================
+
+from pydantic import BaseModel as AuthBaseModel
+
+class AdminLoginRequest(AuthBaseModel):
+    username: str
+    password: str
+
+class AdminLoginResponse(AuthBaseModel):
+    success: bool
+    token: Optional[str] = None
+    message: str
+
+@app.post("/admin/login", response_model=AdminLoginResponse)
+async def admin_login(request: AdminLoginRequest):
+    """Admin login endpoint with double-hashed password verification"""
+    try:
+        if request.username == admin_auth.ADMIN_USERNAME:
+            if admin_auth.verify_password_double(request.password, admin_auth.ADMIN_PASSWORD_HASH):
+                token = admin_auth.create_admin_session(request.username)
+                return AdminLoginResponse(
+                    success=True,
+                    token=token,
+                    message="Login successful"
+                )
+        
+        return AdminLoginResponse(
+            success=False,
+            message="Invalid credentials"
+        )
+    except Exception as e:
+        logger.error(f"Admin login error: {e}")
+        raise HTTPException(status_code=500, detail="Login failed")
+
+@app.post("/admin/logout")
+async def admin_logout(session: dict = Depends(admin_auth.verify_admin_token)):
+    """Admin logout endpoint"""
+    # Token is automatically verified by dependency
+    return {"success": True, "message": "Logged out successfully"}
+
+@app.get("/admin/verify")
+async def verify_admin(session: dict = Depends(admin_auth.verify_admin_token)):
+    """Verify admin session"""
+    return {"success": True, "username": session["username"]}
+
 # ==================== DASHBOARD ====================
+
+@app.get("/")
+async def root_redirect():
+    """Redirect root to admin login"""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "admin-login.html"))
+
+@app.get("/admin")
+async def admin_dashboard():
+    """Serve the admin dashboard"""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "admin.html"))
+
 
 @app.get("/dashboard")
 async def dashboard():
@@ -603,18 +664,41 @@ async def create_agent(agent: AgentCreate, db: SupabaseDB = Depends(get_db)):
 @app.get("/agents", response_model=List[dict])
 async def list_agents(
     is_active: Optional[bool] = None,
+    user_id: Optional[str] = None,  # If provided, filter by user; if None, show all (admin mode)
     db: SupabaseDB = Depends(get_db)
 ):
-    """List user's agents"""
-    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
+    """List agents - filtered by user_id or all agents for admin"""
     try:
-        # Filter agents by user_id
-        query = db.client.table("agents").select("*").eq("user_id", user_id)
+        # Build query
+        query = db.client.table("agents").select("*")
+        
+        # Filter by user_id if provided
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        # Filter by active status if specified
         if is_active is not None:
             query = query.eq("is_active", is_active)
         
         result = query.execute()
-        return result.data or []
+        agents = result.data or []
+        
+        # Fetch user info for each agent (since we can't join)
+        if agents:
+            user_ids = list(set(a.get("user_id") for a in agents if a.get("user_id")))
+            if user_ids:
+                users_result = db.client.table("users").select("id,name,email,company").in_("id", user_ids).execute()
+                users_map = {u["id"]: u for u in (users_result.data or [])}
+                
+                # Add user info to agents
+                for agent in agents:
+                    uid = agent.get("user_id")
+                    if uid and uid in users_map:
+                        agent["user_name"] = users_map[uid].get("name")
+                        agent["user_email"] = users_map[uid].get("email")
+                        agent["user_company"] = users_map[uid].get("company")
+        
+        return agents
     except Exception as e:
         logger.error(f"Error listing agents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -623,15 +707,32 @@ async def list_agents(
 @app.get("/agents/{agent_id}", response_model=dict)
 async def get_agent(
     agent_id: str,
+    user_id: Optional[str] = None,  # Optional user_id filter for security
     db: SupabaseDB = Depends(get_db)
 ):
-    """Get agent by ID (user's agents only)"""
-    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
+    """Get agent by ID"""
     try:
-        result = db.client.table("agents").select("*").eq("id", agent_id).eq("user_id", user_id).execute()
+        query = db.client.table("agents").select("*").eq("id", agent_id)
+        
+        # Filter by user_id if provided (non-admin mode)
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        result = query.execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Agent not found")
-        return result.data[0]
+        
+        agent = result.data[0]
+        
+        # Fetch user info
+        if agent.get("user_id"):
+            user_result = db.client.table("users").select("name,email,company").eq("id", agent["user_id"]).execute()
+            if user_result.data:
+                agent["user_name"] = user_result.data[0].get("name")
+                agent["user_email"] = user_result.data[0].get("email")
+                agent["user_company"] = user_result.data[0].get("company")
+        
+        return agent
     except HTTPException:
         raise
     except Exception as e:
@@ -644,15 +745,19 @@ async def get_agent(
 async def update_agent(
     agent_id: str,
     updates: AgentUpdate,
+    user_id: Optional[str] = None,  # Optional user_id for security (admins can skip)
     db: SupabaseDB = Depends(get_db)
 ):
-    """Update agent prompt and configuration (user's agents only)"""
-    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
+    """Update agent prompt and configuration"""
     try:
-        # Verify agent belongs to user
-        agent_result = db.client.table("agents").select("id").eq("id", agent_id).eq("user_id", user_id).execute()
+        # Verify agent exists (and optionally belongs to user)
+        query = db.client.table("agents").select("id,user_id").eq("id", agent_id)
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        agent_result = query.execute()
         if not agent_result.data:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail="Agent not found or access denied")
         
         # Filter out None values
         update_data = {k: v for k, v in updates.dict().items() if v is not None}
@@ -709,12 +814,13 @@ async def create_outbound_call(
         if not twilio_client:
             raise HTTPException(status_code=500, detail="Twilio not configured")
         
-        # Create call record with explicit direction
+        # Create call record with explicit direction and user_id from agent
         call_record = await db.create_call(
             agent_id=call_request.agent_id,
             to_number=call_request.to_number,
             from_number=TWILIO_PHONE_NUMBER,
             direction="outbound",
+            user_id=agent.get("user_id"),  # Associate call with agent's owner
             metadata=call_request.metadata
         )
         
@@ -813,15 +919,20 @@ async def get_call(
 
 @app.get("/calls", response_model=List[dict])
 async def list_calls(
+    user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
     db: SupabaseDB = Depends(get_db)
 ):
     """List calls with optional filters (user's calls only)"""
-    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
-        query = db.client.table("calls").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit)
+        query = db.client.table("calls").select("*").order("created_at", desc=True).limit(limit)
+        
+        # Filter by user_id if provided
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
         if agent_id:
             query = query.eq("agent_id", agent_id)
         if status:
@@ -986,8 +1097,7 @@ async def startup_event():
         logger.info(f"Database connected. Found {len(agents)} agents.")
         
         # Initialize auth routes with supabase client
-        from shared.database import supabase
-        auth_routes.init_supabase(supabase)
+        auth_routes.init_supabase(db.client)
         logger.info("Auth routes initialized")
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
