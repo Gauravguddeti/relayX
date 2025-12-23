@@ -14,8 +14,8 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh && \
     sh get-docker.sh && \
     rm get-docker.sh
 
-# Copy requirements
-COPY requirements.txt .
+# Copy backend requirements
+COPY backend/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

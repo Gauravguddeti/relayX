@@ -1,4 +1,4 @@
-# Run this SQL migration in your Supabase SQL editor
+-- Run this SQL migration in your Supabase SQL editor
 
 -- Step 1: Create users table
 CREATE TABLE IF NOT EXISTS users (
@@ -8,8 +8,6 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT,
     phone TEXT,
     company TEXT,
-    calendly_api_key TEXT,
-    calendly_event_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
