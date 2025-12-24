@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-text-primary;
+    font-size: 18px;
+    font-family: 'Ubuntu', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-text-primary;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+  }
+  
+  h1 {
+    font-size: 32px;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-secondary px-6 py-3 rounded-lg hover:opacity-90 transition;
+    font-family: 'Ubuntu', sans-serif;
+    font-weight: 700;
+  }
+  
+  .btn-secondary {
+    @apply bg-transparent text-text-primary border-2 border-text-primary px-6 py-3 rounded-lg hover:bg-bg-lighter transition;
+    font-family: 'Ubuntu', sans-serif;
+    font-weight: 700;
+  }
+  
+  .card {
+    @apply bg-accent text-secondary rounded-lg shadow-lg p-6;
+  }
+  
+  .input {
+    @apply bg-bg-lighter border-2 border-bg-lighter text-text-primary px-4 py-3 rounded-lg focus:border-primary focus:outline-none transition;
+  }
+}

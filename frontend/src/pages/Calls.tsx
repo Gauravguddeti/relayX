@@ -35,7 +35,11 @@ export default function Calls() {
     try {
       setLoading(true);
       // Fetch only current user's calls
-      const response = await fetch(`/calls?user_id=${userId}&limit=100`);
+      const response = await fetch(`/calls?user_id=${userId}&limit=100`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        }
+      });
       if (!response.ok) {
         console.error('Failed to fetch calls:', response.status);
         setCalls([]);

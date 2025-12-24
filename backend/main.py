@@ -92,6 +92,7 @@ class AgentCreate(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=1.0)
     max_tokens: int = Field(default=100, ge=50, le=500)
     is_active: bool = Field(default=True)
+    user_id: Optional[str] = Field(None, description="User/client ID this agent belongs to")
 
 
 class AgentUpdate(BaseModel):
@@ -248,6 +249,72 @@ async def get_stats(db: SupabaseDB = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         return {"total_agents": 0, "total_calls": 0, "active_calls": 0}
+
+
+@app.get("/dashboard/stats")
+async def get_dashboard_stats(
+    user_id: str = Depends(get_current_user_id),
+    db: SupabaseDB = Depends(get_db)
+):
+    """Get aggregated dashboard statistics for the current user"""
+    try:
+        # Fetch all user's calls with analysis in a single query
+        response = db.client.table("calls")\
+            .select("id, status, created_at, call_analysis")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=True)\
+            .limit(100)\
+            .execute()
+        
+        calls = response.data if response.data else []
+        
+        # Calculate stats
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_calls = 0
+        interested_count = 0
+        not_interested_count = 0
+        confidence_sum = 0.0
+        confidence_count = 0
+        
+        for call in calls:
+            # Count today's calls
+            if call.get("created_at"):
+                call_date = datetime.fromisoformat(call["created_at"].replace("Z", "+00:00"))
+                if call_date >= today:
+                    today_calls += 1
+            
+            # Process analysis data
+            if call.get("status") == "completed" and call.get("call_analysis"):
+                analysis = call["call_analysis"]
+                
+                # Check outcome
+                outcome = analysis.get("outcome", "").lower()
+                if "interested" in outcome and "not" not in outcome:
+                    interested_count += 1
+                elif "not interested" in outcome:
+                    not_interested_count += 1
+                
+                # Add confidence score
+                if analysis.get("confidence_score"):
+                    confidence_sum += float(analysis["confidence_score"])
+                    confidence_count += 1
+        
+        return {
+            "totalCalls": len(calls),
+            "interestedCalls": interested_count,
+            "notInterestedCalls": not_interested_count,
+            "avgConfidence": confidence_sum / confidence_count if confidence_count > 0 else 0,
+            "todayCalls": today_calls
+        }
+    except Exception as e:
+        logger.error(f"Error getting dashboard stats: {e}")
+        return {
+            "totalCalls": 0,
+            "interestedCalls": 0,
+            "notInterestedCalls": 0,
+            "avgConfidence": 0,
+            "todayCalls": 0
+        }
 
 
 @app.get("/info")
@@ -651,7 +718,8 @@ async def create_agent(agent: AgentCreate, db: SupabaseDB = Depends(get_db)):
             llm_model=agent.llm_model,
             temperature=agent.temperature,
             max_tokens=agent.max_tokens,
-            is_active=agent.is_active
+            is_active=agent.is_active,
+            user_id=agent.user_id
         )
         return result
     except HTTPException:
@@ -901,10 +969,10 @@ async def initiate_twilio_call(call_id: str, to_number: str, db: SupabaseDB):
 @app.get("/calls/{call_id}", response_model=dict)
 async def get_call(
     call_id: str,
+    user_id: str = Depends(get_current_user_id),
     db: SupabaseDB = Depends(get_db)
 ):
     """Get call details by ID (user's calls only)"""
-    user_id = "00000000-0000-0000-0000-000000000000"  # TODO: Re-enable auth
     try:
         result = db.client.table("calls").select("*").eq("id", call_id).eq("user_id", user_id).execute()
         if not result.data:
@@ -1011,9 +1079,10 @@ async def update_call(call_id: str, update: CallUpdate, db: SupabaseDB = Depends
 
 
 @app.get("/calls/{call_id}/recording")
+@app.head("/calls/{call_id}/recording")
 async def get_call_recording(call_id: str, db: SupabaseDB = Depends(get_db)):
     """
-    Get recording metadata for a call
+    Get recording metadata for a call (supports HEAD for existence check)
     """
     try:
         call = await db.get_call(call_id)

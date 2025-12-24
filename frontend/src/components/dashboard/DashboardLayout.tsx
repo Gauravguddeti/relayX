@@ -16,9 +16,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: 'Dashboard', path: '/dashboard', icon: Home },
     { name: 'Calls', path: '/dashboard/calls', icon: Phone },
     { name: 'Contacts', path: '/dashboard/contacts', icon: Users },
-    { name: 'My Bot', path: '/dashboard/bot', icon: Settings },
+    { name: 'My Agents', path: '/dashboard/bot', icon: Settings },
     { name: 'Knowledge Base', path: '/dashboard/knowledge', icon: BookOpen },
-    { name: 'Test Bot', path: '/dashboard/test', icon: TestTube },
+    { name: 'Test Agent', path: '/dashboard/test', icon: TestTube },
     { name: 'Cal.com', path: '/dashboard/cal', icon: Calendar },
   ];
 
@@ -28,24 +28,24 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background font-body">
       {/* Top Navigation */}
-      <nav className="bg-white border-b border-gray-200">
+      <nav className="bg-secondary border-b-2 border-primary">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <Link to="/dashboard" className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg"></div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                <div className="w-8 h-8 bg-primary rounded-lg"></div>
+                <span className="text-3xl font-title font-bold text-primary">
                   RelayX
                 </span>
               </Link>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">{user?.email}</span>
+              <span className="text-sm text-text">{user?.email}</span>
               <button
                 onClick={handleLogout}
-                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg hover:bg-gray-100"
+                className="flex items-center space-x-2 text-text hover:text-primary px-3 py-2 rounded-lg hover:bg-bg-lighter font-bold transition"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Logout</span>
@@ -57,7 +57,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       <div className="flex">
         {/* Sidebar */}
-        <aside className="w-64 bg-white border-r border-gray-200 min-h-[calc(100vh-4rem)]">
+        <aside className="w-64 bg-bg-lighter border-r-2 border-bg-lighter min-h-[calc(100vh-4rem)]">
           <nav className="p-4 space-y-1">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
@@ -66,10 +66,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors font-bold ${
                     isActive
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? 'bg-primary text-secondary'
+                      : 'text-text hover:bg-bg-darker hover:text-primary'
                   }`}
                 >
                   <Icon className="w-5 h-5" />

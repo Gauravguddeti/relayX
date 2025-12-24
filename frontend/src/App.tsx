@@ -7,7 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Calls from './pages/Calls';
 import CallDetails from './pages/CallDetails';
 import Contacts from './pages/Contacts';
-import BotSettings from './pages/BotSettings';
+import AgentSettings from './pages/AgentSettings';
 import KnowledgeBase from './pages/KnowledgeBase';
 import TestBot from './pages/TestBot';
 import CalIntegration from './pages/CalIntegration';
@@ -55,7 +55,7 @@ function App() {
             path="/dashboard/bot"
             element={
               <ProtectedRoute>
-                <BotSettings />
+                <AgentSettings />
               </ProtectedRoute>
             }
           />

@@ -75,7 +75,11 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
 
     try {
       // Fetch only current user's agents
-      const response = await fetch(`/agents?user_id=${userId}`);
+      const response = await fetch(`/agents?user_id=${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         const agentList = Array.isArray(data) ? data : [];
@@ -190,7 +194,10 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
 
       const response = await fetch('/calls/outbound', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        },
         body: JSON.stringify(payload),
       });
 

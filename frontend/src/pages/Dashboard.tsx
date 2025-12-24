@@ -39,56 +39,21 @@ export default function Dashboard() {
 
     try {
       setLoading(true);
-      // Fetch calls for current user only
-      const response = await fetch(`/calls?user_id=${userId}&limit=100`);
+      // Use the optimized dashboard stats endpoint
+      const response = await fetch('/dashboard/stats', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        }
+      });
+      
       if (!response.ok) {
-        console.error('Failed to fetch calls:', response.status);
+        console.error('Failed to fetch dashboard stats:', response.status);
         setLoading(false);
         return;
       }
-      const data = await response.json();
-      const calls = Array.isArray(data) ? data : [];
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const todayCalls = calls.filter((call: any) => {
-        const callDate = new Date(call.created_at);
-        return callDate >= today;
-      });
-
-      const completed = calls.filter((c: any) => c.status === 'completed');
       
-      // Calculate stats from call analysis
-      let interestedCount = 0;
-      let notInterestedCount = 0;
-      let confidenceSum = 0;
-      let confidenceCount = 0;
-
-      for (const call of completed) {
-        try {
-          const analysisRes = await fetch(`/calls/${call.id}/analysis`);
-          if (analysisRes.ok) {
-            const analysis = await analysisRes.json();
-            if (analysis.outcome?.toLowerCase().includes('interested')) interestedCount++;
-            if (analysis.outcome?.toLowerCase().includes('not interested')) notInterestedCount++;
-            if (analysis.confidence_score) {
-              confidenceSum += analysis.confidence_score;
-              confidenceCount++;
-            }
-          }
-        } catch (e) {
-          // Skip if analysis not available
-        }
-      }
-
-      setStats({
-        totalCalls: calls.length,
-        interestedCalls: interestedCount,
-        notInterestedCalls: notInterestedCount,
-        avgConfidence: confidenceCount > 0 ? confidenceSum / confidenceCount : 0,
-        todayCalls: todayCalls.length,
-      });
+      const data = await response.json();
+      setStats(data);
     } catch (error) {
       console.error('Failed to fetch dashboard stats:', error);
     } finally {

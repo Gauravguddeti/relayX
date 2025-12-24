@@ -4,38 +4,74 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RelayX Admin Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        text: '#FAFAFA',
+                        background: '#161616',
+                        primary: '#DAED6E',
+                        secondary: '#000000',
+                        accent: '#FFFFFF',
+                        'bg-dark': '#161616',
+                        'bg-darker': '#0A0A0A',
+                        'bg-lighter': '#1E1E1E',
+                    },
+                    fontFamily: {
+                        'title': ['Space Grotesk', 'sans-serif'],
+                        'body': ['Ubuntu', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
     <style>
+        body {
+            font-size: 18px;
+            background: #161616;
+            color: #FAFAFA;
+            font-family: 'Ubuntu', sans-serif;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Space Grotesk', sans-serif;
+        }
         .client-card {
             transition: all 0.2s;
+            background: #1E1E1E;
+            border-color: #2A2A2A;
         }
         .client-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-color: #DAED6E;
         }
         .client-card.selected {
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            border-color: #DAED6E;
+            box-shadow: 0 0 0 3px rgba(218, 237, 110, 0.2);
         }
     </style>
 </head>
-<body class="bg-gray-50">
+<body>
     <!-- Header -->
-    <nav class="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+    <nav class="bg-secondary border-b-2 border-primary shadow-lg">
         <div class="container mx-auto px-6 py-4">
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-2xl font-bold">RelayX Admin Dashboard</h1>
-                    <p class="text-sm text-blue-100">Multi-Client Management • <span id="adminUsername">Admin</span></p>
+                    <h1 class="text-4xl font-bold text-primary">RelayX</h1>
+                    <p class="text-sm text-text">Admin Dashboard • <span id="adminUsername">Admin</span></p>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button onclick="refreshData()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                    <button onclick="refreshData()" class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
                         🔄 Refresh
                     </button>
-                    <button onclick="viewAnalytics()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                    <button onclick="viewAnalytics()" class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
                         📊 Analytics
                     </button>
-                    <button onclick="logout()" class="px-4 py-2 bg-red-500/80 hover:bg-red-600 rounded-lg transition">
+                    <button onclick="logout()" class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
                         🚪 Logout
                     </button>
                 </div>
@@ -46,31 +82,31 @@
     <div class="container mx-auto px-6 py-8">
         <!-- Analytics Overview -->
         <div id="analyticsOverview" class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="text-sm text-gray-600">Total Clients</div>
-                <div class="text-3xl font-bold text-blue-600" id="totalClients">-</div>
+            <div class="bg-accent rounded-lg shadow-lg p-6 border-2 border-primary">
+                <div class="text-small text-secondary">Total Clients</div>
+                <div class="text-4xl font-bold text-secondary" id="totalClients">-</div>
             </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="text-sm text-gray-600">Active Clients</div>
-                <div class="text-3xl font-bold text-green-600" id="activeClients">-</div>
+            <div class="bg-accent rounded-lg shadow-lg p-6 border-2 border-primary">
+                <div class="text-small text-secondary">Active Clients</div>
+                <div class="text-4xl font-bold text-secondary" id="activeClients">-</div>
             </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="text-sm text-gray-600">Total Calls Today</div>
-                <div class="text-3xl font-bold text-purple-600" id="callsToday">-</div>
+            <div class="bg-accent rounded-lg shadow-lg p-6 border-2 border-primary">
+                <div class="text-small text-secondary">Total Calls Today</div>
+                <div class="text-4xl font-bold text-secondary" id="callsToday">-</div>
             </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="text-sm text-gray-600">Success Rate</div>
-                <div class="text-3xl font-bold text-indigo-600" id="successRate">-</div>
+            <div class="bg-accent rounded-lg shadow-lg p-6 border-2 border-primary">
+                <div class="text-small text-secondary">Success Rate</div>
+                <div class="text-4xl font-bold text-secondary" id="successRate">-</div>
             </div>
         </div>
 
         <!-- Client Filter -->
-        <div class="bg-white rounded-lg shadow p-6 mb-8">
+        <div class="bg-bg-lighter rounded-lg shadow-lg p-6 mb-8 border-2 border-bg-lighter">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-xl font-bold text-gray-800">👥 Clients</h2>
+                <h2 class="text-title font-bold text-primary">👥 Clients</h2>
                 <div class="flex items-center space-x-3">
-                    <input type="text" id="searchClients" placeholder="Search clients..." class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <button onclick="selectAllClients()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                    <input type="text" id="searchClients" placeholder="Search clients..." class="px-4 py-2 bg-bg-darker border-2 border-bg-darker text-text rounded-lg focus:border-primary focus:outline-none">
+                    <button onclick="selectAllClients()" class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
                         View All Agents
                     </button>
                 </div>
@@ -78,52 +114,52 @@
             
             <!-- Client Cards Grid -->
             <div id="clientCards" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <div class="text-center text-gray-500 py-12 col-span-full">Loading clients...</div>
+                <div class="text-center text-text py-12 col-span-full">Loading clients...</div>
             </div>
         </div>
 
         <!-- Selected Client Details -->
-        <div id="clientDetailPanel" class="bg-white rounded-lg shadow p-6 mb-8 hidden">
+        <div id="clientDetailPanel" class="bg-bg-lighter rounded-lg shadow p-6 mb-8 hidden">
             <div class="flex items-center justify-between mb-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-800" id="selectedClientName">-</h2>
-                    <p class="text-gray-600" id="selectedClientInfo">-</p>
+                    <h2 class="text-2xl font-bold text-text" id="selectedClientName">-</h2>
+                    <p class="text-text" id="selectedClientInfo">-</p>
                 </div>
-                <button onclick="closeClientDetail()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                <button onclick="closeClientDetail()" class="px-4 py-2 bg-bg-darker hover:bg-primary hover:text-secondary rounded-lg transition text-text font-bold">
                     ✕ Close
                 </button>
             </div>
             
             <!-- Client Stats -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div class="bg-blue-50 rounded-lg p-4">
-                    <div class="text-sm text-blue-600 font-medium">Agents</div>
-                    <div class="text-2xl font-bold text-blue-700" id="clientAgentCount">-</div>
+                <div class="bg-primary rounded-lg p-4">
+                    <div class="text-small text-secondary font-bold">Agents</div>
+                    <div class="text-3xl font-bold text-secondary" id="clientAgentCount">-</div>
                 </div>
-                <div class="bg-green-50 rounded-lg p-4">
-                    <div class="text-sm text-green-600 font-medium">Total Calls</div>
-                    <div class="text-2xl font-bold text-green-700" id="clientTotalCalls">-</div>
+                <div class="bg-primary rounded-lg p-4">
+                    <div class="text-small text-secondary font-bold">Total Calls</div>
+                    <div class="text-3xl font-bold text-secondary" id="clientTotalCalls">-</div>
                 </div>
-                <div class="bg-purple-50 rounded-lg p-4">
-                    <div class="text-sm text-purple-600 font-medium">Success Rate</div>
-                    <div class="text-2xl font-bold text-purple-700" id="clientSuccessRate">-</div>
+                <div class="bg-primary rounded-lg p-4">
+                    <div class="text-small text-secondary font-bold">Success Rate</div>
+                    <div class="text-3xl font-bold text-secondary" id="clientSuccessRate">-</div>
                 </div>
-                <div class="bg-orange-50 rounded-lg p-4">
-                    <div class="text-sm text-orange-600 font-medium">Avg Duration</div>
-                    <div class="text-2xl font-bold text-orange-700" id="clientAvgDuration">-</div>
+                <div class="bg-primary rounded-lg p-4">
+                    <div class="text-small text-secondary font-bold">Avg Duration</div>
+                    <div class="text-3xl font-bold text-secondary" id="clientAvgDuration">-</div>
                 </div>
             </div>
 
             <!-- Tabs -->
-            <div class="border-b border-gray-200 mb-6">
+            <div class="border-b-2 border-bg-lighter mb-6">
                 <div class="flex space-x-6">
-                    <button onclick="showTab('agents')" class="tab-button px-4 py-2 border-b-2 border-blue-600 text-blue-600 font-medium">
+                    <button onclick="showTab('agents')" class="tab-button px-4 py-2 border-b-2 border-primary text-primary font-bold">
                         Agents
                     </button>
-                    <button onclick="showTab('calls')" class="tab-button px-4 py-2 border-b-2 border-transparent text-gray-600 hover:text-gray-800">
+                    <button onclick="showTab('calls')" class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
                         Recent Calls
                     </button>
-                    <button onclick="showTab('audit')" class="tab-button px-4 py-2 border-b-2 border-transparent text-gray-600 hover:text-gray-800">
+                    <button onclick="showTab('audit')" class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
                         Audit Trail
                     </button>
                 </div>
@@ -131,6 +167,13 @@
 
             <!-- Tab Content -->
             <div id="agentsTab" class="tab-content">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-text">Client Agents</h3>
+                    <button onclick="openAgentModal()" class="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition flex items-center gap-2">
+                        <span>+</span>
+                        <span>New Agent</span>
+                    </button>
+                </div>
                 <div id="clientAgents">Loading agents...</div>
             </div>
             <div id="callsTab" class="tab-content hidden">
@@ -142,38 +185,38 @@
         </div>
 
         <!-- All Agents Section (Admin View) -->
-        <div id="allAgentsSection" class="bg-white rounded-lg shadow p-6 mb-8">
+        <div id="allAgentsSection" class="bg-bg-lighter rounded-lg shadow p-6 mb-8">
             <div class="flex items-center justify-between mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-800">🤖 <span id="agentsSectionTitle">All Agents</span></h2>
-                    <p class="text-sm text-gray-600">Manage AI agents across all clients</p>
+                    <h2 class="text-xl font-bold text-text">🤖 <span id="agentsSectionTitle">All Agents</span></h2>
+                    <p class="text-sm text-text">Manage AI agents across all clients</p>
                 </div>
-                <a href="/static/dashboard.html" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                    + New Agent
-                </a>
             </div>
             <div id="agentsList">Loading agents...</div>
         </div>
 
         <!-- System Monitor -->
-        <div class="bg-white rounded-lg shadow p-6">
+        <div class="mb-8">
             <div class="flex items-center justify-between mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-800">🖥️ System Monitor</h2>
-                    <p class="text-sm text-gray-600">Real-time system activity</p>
+                    <h2 class="text-2xl font-bold text-text">🖥️ System Monitor</h2>
+                    <p class="text-sm text-text">Real-time system activity</p>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <button onclick="toggleBulkOperations()" class="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition">
+                    <button onclick="toggleBulkOperations()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
                         🗑️ Bulk Operations
                     </button>
-                    <button onclick="exportData()" class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition">
+                    <button onclick="exportSystemData()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
                         📥 Export Data
+                    </button>
+                    <button onclick="refreshSystemLogs()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
+                        🔄 Refresh
                     </button>
                 </div>
             </div>
             
             <!-- Bulk Operations Panel -->
-            <div id="bulkOpsPanel" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 hidden">
+            <div id="bulkOpsPanel" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 hidden">
                 <h3 class="font-semibold text-yellow-800 mb-3">⚠️ Bulk Operations</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -193,11 +236,90 @@
                 </div>
             </div>
 
-            <iframe src="/static/logs.html" class="w-full h-96 border border-gray-200 rounded-lg"></iframe>
+            <!-- Backend Service -->
+            <div class="bg-bg-lighter rounded-lg shadow p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">🔧</span>
+                        <div>
+                            <h3 class="text-lg font-semibold text-text">Backend Service</h3>
+                            <p class="text-sm text-text">Python FastAPI • Port 8000</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium" id="backendStatus">
+                            <span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span>
+                            Online
+                        </div>
+                        <span class="text-xs text-text" id="backendTimestamp">--</span>
+                    </div>
+                </div>
+                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto" id="backendLogs">
+                    <div class="text-text">Loading backend logs...</div>
+                </div>
+            </div>
+
+            <!-- Voice Gateway -->
+            <div class="bg-bg-lighter rounded-lg shadow p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">🎙️</span>
+                        <div>
+                            <h3 class="text-lg font-semibold text-text">Voice Gateway</h3>
+                            <p class="text-sm text-text">WebSocket Server • Port 8001</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium" id="voiceStatus">
+                            <span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span>
+                            Online
+                        </div>
+                        <span class="text-xs text-text" id="voiceTimestamp">--</span>
+                    </div>
+                </div>
+                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto" id="voiceLogs">
+                    <div class="text-text">Loading voice gateway logs...</div>
+                </div>
+            </div>
+
+            <!-- Recent System Calls -->
+            <div class="bg-bg-lighter rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">📞</span>
+                        <div>
+                            <h3 class="text-lg font-semibold text-text">Recent System Calls</h3>
+                            <p class="text-sm text-text">Last 20 calls across all clients</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm font-medium text-text" id="systemCallCount">0 calls</span>
+                        <span class="text-xs text-text" id="systemCallsTimestamp">--</span>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-bg-darker">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Time</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Client</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Phone</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Agent</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-text uppercase">Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="systemCallsTable" class="bg-bg-lighter divide-y divide-gray-200">
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-text">Loading system calls...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
+        let systemLogsInterval;
         let selectedClientId = null;
         let allClients = [];
         let allAgents = [];
@@ -287,37 +409,37 @@
         function displayClients(clients) {
             const container = document.getElementById('clientCards');
             if (clients.length === 0) {
-                container.innerHTML = '<div class="text-center text-gray-500 py-12 col-span-full">No clients found</div>';
+                container.innerHTML = '<div class="text-center text-text py-12 col-span-full">No clients found</div>';
                 return;
             }
 
             container.innerHTML = clients.map(client => `
-                <div class="client-card bg-white border-2 border-gray-200 rounded-lg p-4 cursor-pointer ${selectedClientId === client.id ? 'selected' : ''}"
+                <div class="client-card bg-bg-lighter border-2 border-bg-lighter rounded-lg p-4 cursor-pointer ${selectedClientId === client.id ? 'selected' : ''}"
                      onclick="selectClient('${client.id}')">
                     <div class="flex items-center justify-between mb-3">
                         <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xl">
                             ${(client.name || 'U')[0].toUpperCase()}
                         </div>
-                        <div class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                        <div class="text-xs px-2 py-1 bg-primary text-secondary rounded-full font-bold">
                             Active
                         </div>
                     </div>
-                    <h3 class="font-semibold text-gray-800 mb-1">${client.name || 'Unknown'}</h3>
-                    <p class="text-sm text-gray-500 mb-3">${client.company || client.email}</p>
+                    <h3 class="font-semibold text-text mb-1">${client.name || 'Unknown'}</h3>
+                    <p class="text-sm text-text mb-3">${client.company || client.email}</p>
                     
                     <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div class="bg-blue-50 rounded px-2 py-1">
-                            <div class="text-blue-600 font-medium">${client.agent_count}</div>
-                            <div class="text-blue-500">Agents</div>
+                        <div class="bg-primary rounded px-2 py-1">
+                            <div class="text-secondary font-bold">${client.agent_count}</div>
+                            <div class="text-secondary">Agents</div>
                         </div>
-                        <div class="bg-green-50 rounded px-2 py-1">
-                            <div class="text-green-600 font-medium">${client.total_calls}</div>
-                            <div class="text-green-500">Calls</div>
+                        <div class="bg-primary rounded px-2 py-1">
+                            <div class="text-secondary font-bold">${client.total_calls}</div>
+                            <div class="text-secondary">Calls</div>
                         </div>
                     </div>
                     
                     ${client.active_calls > 0 ? `
-                        <div class="mt-2 text-xs text-orange-600 font-medium">
+                        <div class="mt-2 text-xs text-primary font-bold">
                             🟢 ${client.active_calls} active call(s)
                         </div>
                     ` : ''}
@@ -369,46 +491,46 @@
                 
                 // Display agents
                 document.getElementById('clientAgents').innerHTML = client.agents.map(agent => `
-                    <div class="bg-gray-50 rounded-lg p-4 mb-3">
+                    <div class="bg-bg-darker rounded-lg p-4 mb-3">
                         <div class="flex items-center justify-between">
                             <div>
-                                <h4 class="font-semibold text-gray-800">${agent.name}</h4>
-                                <p class="text-sm text-gray-500">${agent.llm_model || 'Default model'}</p>
+                                <h4 class="font-semibold text-text">${agent.name}</h4>
+                                <p class="text-sm text-text">${agent.llm_model || 'Default model'}</p>
                             </div>
-                            <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+                            <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-primary 100 text-secondary 700' : 'bg-gray-100 text-text'}">
                                 ${agent.is_active ? 'Active' : 'Inactive'}
                             </div>
                         </div>
                     </div>
-                `).join('') || '<p class="text-gray-500">No agents configured</p>';
+                `).join('') || '<p class="text-text">No agents configured</p>';
                 
                 // Display recent calls
                 document.getElementById('clientCalls').innerHTML = client.recent_calls.slice(0, 10).map(call => `
-                    <div class="border-b border-gray-200 py-3">
+                    <div class="border-b border-bg-lighter py-3">
                         <div class="flex items-center justify-between">
                             <div>
-                                <div class="font-medium text-gray-800">${call.to_number}</div>
-                                <div class="text-sm text-gray-500">${new Date(call.created_at).toLocaleString()}</div>
+                                <div class="font-medium text-text">${call.to_number}</div>
+                                <div class="text-sm text-text">${new Date(call.created_at).toLocaleString()}</div>
                             </div>
-                            <div class="text-xs px-2 py-1 rounded-full ${call.status === 'completed' ? 'bg-green-100 text-green-700' : call.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}">
+                            <div class="text-xs px-2 py-1 rounded-full ${call.status === 'completed' ? 'bg-primary 100 text-secondary 700' : call.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-text'}">
                                 ${call.status}
                             </div>
                         </div>
                     </div>
-                `).join('') || '<p class="text-gray-500">No calls yet</p>';
+                `).join('') || '<p class="text-text">No calls yet</p>';
                 
                 // Display audit logs
                 document.getElementById('clientAudit').innerHTML = client.audit_logs.map(log => `
-                    <div class="border-b border-gray-200 py-3">
+                    <div class="border-b border-bg-lighter py-3">
                         <div class="flex items-center justify-between">
                             <div>
-                                <div class="font-medium text-gray-800">${log.action.replace('_', ' ')}</div>
-                                <div class="text-sm text-gray-500">${new Date(log.timestamp).toLocaleString()}</div>
+                                <div class="font-medium text-text">${log.action.replace('_', ' ')}</div>
+                                <div class="text-sm text-text">${new Date(log.timestamp).toLocaleString()}</div>
                             </div>
-                            <div class="text-xs text-gray-600">${log.details.to_number || ''}</div>
+                            <div class="text-xs text-text">${log.details.to_number || ''}</div>
                         </div>
                     </div>
-                `).join('') || '<p class="text-gray-500">No activity</p>';
+                `).join('') || '<p class="text-text">No activity</p>';
                 
             } catch (error) {
                 console.error('Error loading client detail:', error);
@@ -434,34 +556,34 @@
         function displayAgents(agents) {
             const container = document.getElementById('agentsList');
             if (agents.length === 0) {
-                container.innerHTML = '<div class="text-center text-gray-500 py-8">No agents found</div>';
+                container.innerHTML = '<div class="text-center text-text py-8">No agents found</div>';
                 return;
             }
 
             container.innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     ${agents.map(agent => `
-                        <div class="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
+                        <div class="bg-accent border-2 border-primary rounded-lg p-4 shadow-lg">
                             <div class="flex items-center justify-between mb-3">
-                                <div class="text-lg font-semibold text-gray-800">${agent.name}</div>
-                                <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+                                <div class="text-lg font-bold text-secondary">${agent.name}</div>
+                                <div class="text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-primary text-secondary font-bold' : 'bg-bg-lighter text-text font-bold'}">
                                     ${agent.is_active ? 'Active' : 'Inactive'}
                                 </div>
                             </div>
                             
                             ${agent.user_name ? `
-                                <div class="mb-2 text-sm">
-                                    <div class="text-gray-600">👤 ${agent.user_name}</div>
-                                    ${agent.user_company ? `<div class="text-gray-500">🏢 ${agent.user_company}</div>` : ''}
+                                <div class="mb-2 text-sm text-secondary">
+                                    <div>👤 ${agent.user_name}</div>
+                                    ${agent.user_company ? `<div>🏢 ${agent.user_company}</div>` : ''}
                                 </div>
                             ` : ''}
                             
-                            <div class="text-xs text-gray-600 mb-2">
+                            <div class="text-xs text-secondary mb-2 font-bold">
                                 Model: ${agent.llm_model || 'default'}
                             </div>
                             
                             ${agent.template_source ? `
-                                <div class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded inline-block mb-2">
+                                <div class="text-xs px-2 py-1 bg-primary text-secondary rounded inline-block mb-2 font-bold">
                                     📋 ${agent.template_source}
                                 </div>
                             ` : ''}
@@ -476,11 +598,11 @@
             
             // Update tab buttons
             document.querySelectorAll('.tab-button').forEach(btn => {
-                btn.classList.remove('border-blue-600', 'text-blue-600');
-                btn.classList.add('border-transparent', 'text-gray-600');
+                btn.classList.remove('border-primary', 'text-primary');
+                btn.classList.add('border-transparent', 'text-text');
             });
-            event.target.classList.remove('border-transparent', 'text-gray-600');
-            event.target.classList.add('border-blue-600', 'text-blue-600');
+            event.target.classList.remove('border-transparent', 'text-text');
+            event.target.classList.add('border-primary', 'text-primary');
             
             // Show/hide tab content
             document.querySelectorAll('.tab-content').forEach(tab => {
@@ -534,6 +656,127 @@
             }
         }
 
+        async function exportSystemData() {
+            await exportData();
+        }
+
+        // System Logs Functions
+        async function fetchBackendLogs() {
+            try {
+                const response = await fetch('/api/logs/backend');
+                const data = await response.json();
+                
+                const logsDiv = document.getElementById('backendLogs');
+                logsDiv.innerHTML = formatLogs(data.logs);
+                
+                document.getElementById('backendTimestamp').textContent = formatTimestamp(data.timestamp);
+                const statusEl = document.getElementById('backendStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span> Online';
+                statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium';
+            } catch (error) {
+                document.getElementById('backendLogs').innerHTML = `<div class="text-red-400">Error: ${error.message}</div>`;
+                const statusEl = document.getElementById('backendStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-red-600 rounded-full"></span> Error';
+                statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium';
+            }
+        }
+        
+        async function fetchVoiceLogs() {
+            try {
+                const response = await fetch('/api/logs/voice-gateway');
+                const data = await response.json();
+                
+                const logsDiv = document.getElementById('voiceLogs');
+                logsDiv.innerHTML = formatLogs(data.logs);
+                
+                document.getElementById('voiceTimestamp').textContent = formatTimestamp(data.timestamp);
+                const statusEl = document.getElementById('voiceStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span> Online';
+                statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium';
+            } catch (error) {
+                document.getElementById('voiceLogs').innerHTML = `<div class="text-red-400">Error: ${error.message}</div>`;
+                const statusEl = document.getElementById('voiceStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-red-600 rounded-full"></span> Error';
+                statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium';
+            }
+        }
+        
+        async function fetchSystemCalls() {
+            try {
+                const response = await fetch('/calls?limit=20');
+                const calls = await response.json();
+                
+                const tbody = document.getElementById('systemCallsTable');
+                
+                if (calls.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-text">No system calls yet</td></tr>';
+                    document.getElementById('systemCallCount').textContent = '0 calls';
+                    return;
+                }
+                
+                tbody.innerHTML = calls.map(call => {
+                    const time = new Date(call.created_at).toLocaleString();
+                    const statusColors = {
+                        'completed': 'bg-primary text-secondary font-bold',
+                        'in-progress': 'bg-primary text-secondary font-bold',
+                        'failed': 'bg-red-100 text-red-800 font-bold'
+                    };
+                    const statusClass = statusColors[call.status] || 'bg-bg-darker text-text font-bold';
+                    const duration = call.duration ? `${Math.floor(call.duration / 60)}:${String(call.duration % 60).padStart(2, '0')}` : '--';
+                    
+                    return `
+                        <tr class="hover:bg-bg-darker">
+                            <td class="px-4 py-3 text-sm text-text">${time}</td>
+                            <td class="px-4 py-3 text-sm text-text">${call.user_name || 'Unknown'}</td>
+                            <td class="px-4 py-3 text-sm font-mono text-text">${call.to_number || call.phone_number || '--'}</td>
+                            <td class="px-4 py-3 text-sm text-text">${call.agent_name || 'Unknown'}</td>
+                            <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs ${statusClass}">${call.status}</span></td>
+                            <td class="px-4 py-3 text-sm text-text">${duration}</td>
+                        </tr>
+                    `;
+                }).join('');
+                
+                document.getElementById('systemCallCount').textContent = `${calls.length} calls`;
+                document.getElementById('systemCallsTimestamp').textContent = formatTimestamp(new Date().toISOString());
+            } catch (error) {
+                document.getElementById('systemCallsTable').innerHTML = 
+                    `<tr><td colspan="6" class="px-4 py-8 text-center text-red-600">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function formatLogs(logText) {
+            const lines = logText.split('\n').filter(line => line.trim());
+            return lines.slice(-50).map(line => {
+                let className = 'text-primary';
+                if (line.includes('ERROR') || line.includes('error')) {
+                    className = 'text-red-400';
+                } else if (line.includes('WARNING') || line.includes('warning')) {
+                    className = 'text-yellow-400';
+                } else if (line.includes('INFO') || line.includes('info')) {
+                    className = 'text-primary';
+                }
+                return `<div class="${className}">${escapeHtml(line)}</div>`;
+            }).join('');
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '--';
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function refreshSystemLogs() {
+            fetchBackendLogs();
+            fetchVoiceLogs();
+            fetchSystemCalls();
+        }
+
         async function viewAnalytics() {
             alert('Detailed analytics dashboard coming soon!');
         }
@@ -543,6 +786,7 @@
             if (selectedClientId) {
                 await loadClientDetail(selectedClientId);
             }
+            refreshSystemLogs();
         }
 
         // Search functionality
@@ -561,10 +805,142 @@
             const authenticated = await checkAuth();
             if (authenticated) {
                 await loadData();
+                refreshSystemLogs();
                 // Auto-refresh every 30 seconds
                 setInterval(refreshData, 30000);
+                // Auto-refresh system logs every 5 seconds
+                systemLogsInterval = setInterval(refreshSystemLogs, 5000);
             }
         })();
+
+        // Agent Modal Functions
+        function openAgentModal() {
+            document.getElementById('agentModal').classList.remove('hidden');
+            document.getElementById('agentName').value = '';
+            document.getElementById('agentPrompt').value = '';
+            document.getElementById('agentModel').value = 'llama-3.1-8b-instant';
+            document.getElementById('agentTemp').value = '0.7';
+            document.getElementById('agentTokens').value = '150';
+        }
+
+        function closeAgentModal() {
+            document.getElementById('agentModal').classList.add('hidden');
+        }
+
+        async function createAgent() {
+            const name = document.getElementById('agentName').value.trim();
+            const prompt = document.getElementById('agentPrompt').value.trim();
+            const model = document.getElementById('agentModel').value;
+            const temperature = parseFloat(document.getElementById('agentTemp').value);
+            const maxTokens = parseInt(document.getElementById('agentTokens').value);
+
+            console.log('Creating agent with:', { name, prompt: prompt.substring(0, 50), model, temperature, maxTokens, selectedClientId });
+
+            if (!name || !prompt) {
+                alert('Please fill in agent name and system prompt');
+                return;
+            }
+
+            if (!selectedClientId) {
+                alert('Please select a client first');
+                return;
+            }
+
+            const submitBtn = document.getElementById('createAgentBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                const payload = {
+                    name: name,
+                    prompt_text: prompt,
+                    llm_model: model,
+                    temperature: temperature,
+                    max_tokens: maxTokens,
+                    user_id: selectedClientId,
+                    is_active: true
+                };
+                
+                console.log('Sending payload:', payload);
+
+                const response = await fetch('/agents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert('Agent created successfully!');
+                    closeAgentModal();
+                    await loadData();
+                } else {
+                    const error = await response.json();
+                    alert('Failed to create agent: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error creating agent:', error);
+                alert('Error creating agent: ' + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Agent';
+            }
+        }
     </script>
+
+    <!-- Agent Creation Modal -->
+    <div id="agentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onclick="if(event.target===this) closeAgentModal()">
+        <div class="bg-bg-lighter rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-xl">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-bold">🤖 Create New Agent</h2>
+                    <button onclick="closeAgentModal()" class="text-white hover:text-gray-200 text-2xl font-bold">&times;</button>
+                </div>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Agent Name</label>
+                    <input type="text" id="agentName" placeholder="e.g., Sarah, Customer Support Bot" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">System Prompt</label>
+                    <textarea id="agentPrompt" rows="10" placeholder="You are a helpful AI assistant..."
+                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"></textarea>
+                    <p class="text-xs text-text mt-1">Define the agent's personality, role, and instructions</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">LLM Model</label>
+                    <select id="agentModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="llama-3.1-8b-instant">Llama 3.1 8B (Fast)</option>
+                        <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Smart)</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Temperature (0-1)</label>
+                        <input type="number" id="agentTemp" min="0" max="1" step="0.1" value="0.7"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Max Tokens</label>
+                        <input type="number" id="agentTokens" min="50" max="500" step="10" value="150"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+            </div>
+            <div class="bg-bg-darker px-6 py-4 rounded-b-xl flex justify-end space-x-3">
+                <button onclick="closeAgentModal()" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition">
+                    Cancel
+                </button>
+                <button id="createAgentBtn" onclick="createAgent()" class="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition">
+                    Create Agent
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
+

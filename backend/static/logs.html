@@ -3,22 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Logs - RelayX</title>
+    <title>System Monitor - RelayX</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root {
-            --bg: #0a0e1a;
-            --surface: #1a1f35;
-            --frost: #e0f7ff;
-            --cyan: #00f0ff;
-            --slate: #8892a6;
-            --accent: rgba(0, 240, 255, 0.1);
-            --border: rgba(0, 240, 255, 0.2);
-            --signal-green: #00ff88;
-            --signal-red: #ff4466;
-            --signal-yellow: #ffcc00;
-            --mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-        }
-        
         * {
             margin: 0;
             padding: 0;
@@ -26,277 +13,106 @@
         }
         
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg);
-            color: var(--frost);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f9fafb;
+            color: #111827;
             line-height: 1.6;
             min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-        
-        header {
-            margin-bottom: 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        h1 {
-            font-size: 28px;
-            font-weight: 600;
-            color: var(--cyan);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .nav-buttons {
-            display: flex;
-            gap: 12px;
-        }
-        
-        .btn {
-            padding: 10px 20px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--frost);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn:hover {
-            background: var(--accent);
-            border-color: var(--cyan);
-            color: var(--cyan);
-        }
-        
-        .btn-primary {
-            background: var(--cyan);
-            color: var(--bg);
-            border-color: var(--cyan);
-        }
-        
-        .btn-primary:hover {
-            background: transparent;
-            color: var(--cyan);
-        }
-        
-        .logs-grid {
-            display: grid;
-            gap: 20px;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-        }
-        
-        .log-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            height: 600px;
-        }
-        
-        .log-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .log-header h2 {
-            font-size: 18px;
-            font-weight: 500;
-            color: var(--cyan);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .status-badge {
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        
-        .status-badge.online {
-            background: rgba(0, 255, 136, 0.1);
-            color: var(--signal-green);
-            border: 1px solid var(--signal-green);
-        }
-        
-        .status-badge.offline {
-            background: rgba(255, 68, 102, 0.1);
-            color: var(--signal-red);
-            border: 1px solid var(--signal-red);
-        }
-        
-        .log-content {
-            flex: 1;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(0, 240, 255, 0.1);
-            border-radius: 6px;
-            padding: 16px;
-            overflow-y: auto;
-            font-family: var(--mono);
-            font-size: 12px;
-            line-height: 1.6;
-            color: var(--frost);
-        }
-        
-        .log-content::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        .log-content::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.2);
-        }
-        
-        .log-content::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 4px;
-        }
-        
-        .log-content::-webkit-scrollbar-thumb:hover {
-            background: var(--cyan);
         }
         
         .log-line {
-            margin-bottom: 4px;
+            margin-bottom: 2px;
             white-space: pre-wrap;
-            word-break: break-all;
+            word-break: break-word;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 13px;
+            padding: 4px 0;
+            line-height: 1.5;
         }
         
         .log-line.error {
-            color: var(--signal-red);
+            color: #dc2626;
+            background: #fef2f2;
+            padding: 4px 8px;
+            border-left: 3px solid #dc2626;
         }
         
         .log-line.warning {
-            color: var(--signal-yellow);
+            color: #d97706;
+            background: #fffbeb;
+            padding: 4px 8px;
+            border-left: 3px solid #d97706;
         }
         
         .log-line.info {
-            color: var(--signal-green);
+            color: #059669;
         }
         
         .log-line.debug {
-            color: var(--slate);
+            color: #6b7280;
         }
         
-        .log-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 12px;
-            font-size: 12px;
-            color: var(--slate);
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         
-        .auto-refresh {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .auto-refresh input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-        }
-        
-        .loading {
-            text-align: center;
-            color: var(--slate);
-            padding: 20px;
-        }
-        
-        .call-logs-section {
-            grid-column: 1 / -1;
-        }
-        
-        .call-logs-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-        }
-        
-        .call-logs-table th,
-        .call-logs-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .call-logs-table th {
-            background: rgba(0, 240, 255, 0.05);
-            color: var(--cyan);
-            font-weight: 500;
-            font-size: 13px;
-        }
-        
-        .call-logs-table td {
-            font-size: 13px;
-            font-family: var(--mono);
-        }
-        
-        .call-logs-table tr:hover {
-            background: rgba(0, 240, 255, 0.03);
-        }
-        
-        .call-status {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 500;
-            display: inline-block;
-        }
-        
-        .call-status.completed {
-            background: rgba(0, 255, 136, 0.1);
-            color: var(--signal-green);
-        }
-        
-        .call-status.in-progress {
-            background: rgba(0, 240, 255, 0.1);
-            color: var(--cyan);
-        }
-        
-        .call-status.failed {
-            background: rgba(255, 68, 102, 0.1);
-            color: var(--signal-red);
-        }
-        
-        @media (max-width: 1200px) {
-            .logs-grid {
-                grid-template-columns: 1fr;
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
             }
         }
 
-        /* Modal styles */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 1000;
-            overflow: auto;
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .status-indicator.online {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-indicator.offline {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .log-container {
+            background: #1f2937;
+            border-radius: 12px;
+            padding: 20px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            color: #e5e7eb;
+            max-height: none;
+            overflow: visible;
+        }
+
+        .log-container .log-line {
+            color: #9ca3af;
+        }
+
+        .log-container .log-line.info {
+            color: #34d399;
+        }
+
+        .log-container .log-line.error {
+            color: #f87171;
+            background: transparent;
+            border-left: none;
+        }
+
+        .log-container .log-line.warning {
+            color: #fbbf24;
+            background: transparent;
+            border-left: none;
         }
 
         .modal-content {
@@ -483,108 +299,146 @@
             color: var(--cyan);
         }
 
-        .no-data {
-            text-align: center;
-            padding: 40px;
-            color: var(--slate);
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
-    <!-- Call Details Modal -->
-    <div id="callDetailsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Call Details</h2>
-                <button class="close-btn" onclick="closeCallDetailsModal()">&times;</button>
+    <!-- Header -->
+    <nav class="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold flex items-center gap-2">
+                        <span>💻</span> System Monitor
+                    </h1>
+                    <p class="text-sm text-blue-100">Real-time system activity</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button onclick="openBulkOps()" class="px-4 py-2 bg-yellow-500/80 hover:bg-yellow-600 rounded-lg transition flex items-center gap-2">
+                        <span>🗑️</span> Bulk Operations
+                    </button>
+                    <button onclick="exportData()" class="px-4 py-2 bg-green-500/80 hover:bg-green-600 rounded-lg transition flex items-center gap-2">
+                        <span>👤</span> Export Data
+                    </button>
+                    <button onclick="refreshAll()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition flex items-center gap-2">
+                        <span>🔄</span> Refresh All
+                    </button>
+                    <a href="/admin" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition flex items-center gap-2">
+                        <span>←</span> Back to Dashboard
+                    </a>
+                </div>
             </div>
-            <div class="modal-body" id="modalBodyContent">
-                <div class="loading">Loading call details...</div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-6 py-8">
+        <!-- Backend Service Section -->
+        <div class="mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🔧</span>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Backend Service</h2>
+                        <p class="text-sm text-gray-600">Python FastAPI • Port 8000</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="status-indicator online" id="backendStatus">
+                        <span class="w-2 h-2 bg-green-600 rounded-full pulse-dot"></span>
+                        Online
+                    </div>
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input type="checkbox" id="autoRefreshBackend" checked class="rounded">
+                        Auto-refresh (5s)
+                    </label>
+                    <span class="text-sm text-gray-500" id="backendTimestamp">--</span>
+                </div>
+            </div>
+            
+            <div class="log-container" id="backendLogs">
+                <div class="text-gray-400">Loading backend logs...</div>
+            </div>
+        </div>
+
+        <!-- Voice Gateway Section -->
+        <div class="mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🎙️</span>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Voice Gateway</h2>
+                        <p class="text-sm text-gray-600">WebSocket Server • Port 8001</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="status-indicator online" id="voiceStatus">
+                        <span class="w-2 h-2 bg-green-600 rounded-full pulse-dot"></span>
+                        Online
+                    </div>
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input type="checkbox" id="autoRefreshVoice" checked class="rounded">
+                        Auto-refresh (5s)
+                    </label>
+                    <span class="text-sm text-gray-500" id="voiceTimestamp">--</span>
+                </div>
+            </div>
+            
+            <div class="log-container" id="voiceLogs">
+                <div class="text-gray-400">Loading voice gateway logs...</div>
+            </div>
+        </div>
+
+        <!-- Call Logs Section -->
+        <div>
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">📞</span>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Recent Calls</h2>
+                        <p class="text-sm text-gray-600">Last 20 system calls</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-sm font-medium text-gray-600" id="callCount">0 calls</span>
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input type="checkbox" id="autoRefreshCalls" checked class="rounded">
+                        Auto-refresh (5s)
+                    </label>
+                    <span class="text-sm text-gray-500" id="callsTimestamp">--</span>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Twilio SID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="callLogsTable" class="bg-white divide-y divide-gray-200">
+                            <tr><td colspan="7" class="px-6 py-12 text-center text-gray-500">Loading call logs...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="container">
-        <header>
-            <h1>
-                <span>📊</span>
-                System Logs & Monitoring
-            </h1>
-            <div class="nav-buttons">
-                <button class="btn" onclick="refreshAll()">↻ Refresh All</button>
-                <a href="/static/dashboard.html" class="btn">← Back to Dashboard</a>
+    <!-- Call Details Modal -->
+    <div id="callDetailsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-900">Call Details</h2>
+                <button onclick="closeCallDetailsModal()" class="text-gray-400 hover:text-gray-600 text-2xl">×</button>
             </div>
-        </header>
-        
-        <div class="logs-grid">
-            <!-- Backend Logs -->
-            <div class="log-card">
-                <div class="log-header">
-                    <h2>🔧 Backend Service</h2>
-                    <span class="status-badge online" id="backendStatus">Online</span>
-                </div>
-                <div class="log-content" id="backendLogs">
-                    <div class="loading">Loading backend logs...</div>
-                </div>
-                <div class="log-footer">
-                    <div class="auto-refresh">
-                        <input type="checkbox" id="autoRefreshBackend" checked>
-                        <label for="autoRefreshBackend">Auto-refresh (5s)</label>
-                    </div>
-                    <span id="backendTimestamp">--</span>
-                </div>
-            </div>
-            
-            <!-- Voice Gateway Logs -->
-            <div class="log-card">
-                <div class="log-header">
-                    <h2>🎙️ Voice Gateway</h2>
-                    <span class="status-badge online" id="voiceStatus">Online</span>
-                </div>
-                <div class="log-content" id="voiceLogs">
-                    <div class="loading">Loading voice gateway logs...</div>
-                </div>
-                <div class="log-footer">
-                    <div class="auto-refresh">
-                        <input type="checkbox" id="autoRefreshVoice" checked>
-                        <label for="autoRefreshVoice">Auto-refresh (5s)</label>
-                    </div>
-                    <span id="voiceTimestamp">--</span>
-                </div>
-            </div>
-            
-            <!-- Call Logs -->
-            <div class="log-card call-logs-section">
-                <div class="log-header">
-                    <h2>📞 Recent Calls (Last 20)</h2>
-                    <span id="callCount">0 calls</span>
-                </div>
-                <div class="log-content">
-                    <table class="call-logs-table">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Phone Number</th>
-                                <th>Agent</th>
-                                <th>Status</th>
-                                <th>Duration</th>
-                                <th>Twilio SID</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="callLogsTable">
-                            <tr><td colspan="7" class="loading">Loading call logs...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="log-footer">
-                    <div class="auto-refresh">
-                        <input type="checkbox" id="autoRefreshCalls" checked>
-                        <label for="autoRefreshCalls">Auto-refresh (5s)</label>
-                    </div>
-                    <span id="callsTimestamp">--</span>
-                </div>
+            <div class="p-6" id="modalBodyContent">
+                <div class="text-center text-gray-500">Loading call details...</div>
             </div>
         </div>
     </div>
@@ -635,15 +489,16 @@
                 
                 const logsDiv = document.getElementById('backendLogs');
                 logsDiv.innerHTML = formatLogs(data.logs);
-                logsDiv.scrollTop = logsDiv.scrollHeight;
                 
                 document.getElementById('backendTimestamp').textContent = formatTimestamp(data.timestamp);
-                document.getElementById('backendStatus').textContent = 'Online';
-                document.getElementById('backendStatus').className = 'status-badge online';
+                const statusEl = document.getElementById('backendStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-green-600 rounded-full pulse-dot"></span> Online';
+                statusEl.className = 'status-indicator online';
             } catch (error) {
                 document.getElementById('backendLogs').innerHTML = `<div class="log-line error">Error: ${error.message}</div>`;
-                document.getElementById('backendStatus').textContent = 'Error';
-                document.getElementById('backendStatus').className = 'status-badge offline';
+                const statusEl = document.getElementById('backendStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-red-600 rounded-full"></span> Error';
+                statusEl.className = 'status-indicator offline';
             }
         }
         
@@ -655,15 +510,16 @@
                 
                 const logsDiv = document.getElementById('voiceLogs');
                 logsDiv.innerHTML = formatLogs(data.logs);
-                logsDiv.scrollTop = logsDiv.scrollHeight;
                 
                 document.getElementById('voiceTimestamp').textContent = formatTimestamp(data.timestamp);
-                document.getElementById('voiceStatus').textContent = 'Online';
-                document.getElementById('voiceStatus').className = 'status-badge online';
+                const statusEl = document.getElementById('voiceStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-green-600 rounded-full pulse-dot"></span> Online';
+                statusEl.className = 'status-indicator online';
             } catch (error) {
                 document.getElementById('voiceLogs').innerHTML = `<div class="log-line error">Error: ${error.message}</div>`;
-                document.getElementById('voiceStatus').textContent = 'Error';
-                document.getElementById('voiceStatus').className = 'status-badge offline';
+                const statusEl = document.getElementById('voiceStatus');
+                statusEl.innerHTML = '<span class="w-2 h-2 bg-red-600 rounded-full"></span> Error';
+                statusEl.className = 'status-indicator offline';
             }
         }
         
@@ -676,25 +532,29 @@
                 const tbody = document.getElementById('callLogsTable');
                 
                 if (calls.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="loading">No calls yet</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-12 text-center text-gray-500">No calls yet</td></tr>';
                     document.getElementById('callCount').textContent = '0 calls';
                     return;
                 }
                 
                 tbody.innerHTML = calls.map(call => {
                     const time = new Date(call.created_at).toLocaleString();
-                    const statusClass = call.status === 'completed' ? 'completed' : 
-                                      call.status === 'in-progress' ? 'in-progress' : 'failed';
+                    const statusColors = {
+                        'completed': 'bg-green-100 text-green-800',
+                        'in-progress': 'bg-blue-100 text-blue-800',
+                        'failed': 'bg-red-100 text-red-800'
+                    };
+                    const statusClass = statusColors[call.status] || 'bg-gray-100 text-gray-800';
                     
                     return `
-                        <tr>
-                            <td>${time}</td>
-                            <td>${call.phone_number || '--'}</td>
-                            <td>${call.agent_name || 'Unknown'}</td>
-                            <td><span class="call-status ${statusClass}">${call.status}</span></td>
-                            <td>${formatDuration(call.duration)}</td>
-                            <td>${call.twilio_call_sid ? call.twilio_call_sid.substring(0, 20) + '...' : '--'}</td>
-                            <td><button class="btn" style="padding: 4px 12px; font-size: 12px;" onclick="viewCallDetails('${call.id}')">View Details</button></td>
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 text-sm text-gray-900">${time}</td>
+                            <td class="px-6 py-4 text-sm font-mono text-gray-900">${call.to_number || call.phone_number || '--'}</td>
+                            <td class="px-6 py-4 text-sm text-gray-900">${call.agent_name || 'Unknown'}</td>
+                            <td class="px-6 py-4"><span class="px-2 py-1 rounded-full text-xs font-medium ${statusClass}">${call.status}</span></td>
+                            <td class="px-6 py-4 text-sm text-gray-900">${formatDuration(call.duration)}</td>
+                            <td class="px-6 py-4 text-sm font-mono text-gray-500">${call.twilio_call_sid ? call.twilio_call_sid.substring(0, 20) + '...' : '--'}</td>
+                            <td class="px-6 py-4"><button onclick="viewCallDetails('${call.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">View Details</button></td>
                         </tr>
                     `;
                 }).join('');
@@ -703,7 +563,7 @@
                 document.getElementById('callsTimestamp').textContent = formatTimestamp(new Date().toISOString());
             } catch (error) {
                 document.getElementById('callLogsTable').innerHTML = 
-                    `<tr><td colspan="7" class="log-line error">Error: ${error.message}</td></tr>`;
+                    `<tr><td colspan="7" class="px-6 py-12 text-center text-red-600">Error: ${error.message}</td></tr>`;
             }
         }
 
@@ -712,8 +572,8 @@
             const modal = document.getElementById('callDetailsModal');
             const modalBody = document.getElementById('modalBodyContent');
             
-            modal.style.display = 'block';
-            modalBody.innerHTML = '<div class="loading">Loading call details...</div>';
+            modal.classList.remove('hidden');
+            modalBody.innerHTML = '<div class="text-center text-gray-500">Loading call details...</div>';
             
             try {
                 // Fetch transcripts, analysis, and recording in parallel
@@ -734,15 +594,15 @@
                 if (recording && recording.has_recording) {
                     const streamUrl = `/calls/${callId}/recording/stream`;
                     content += `
-                        <div class="details-section">
-                            <h3>🎙️ Call Recording</h3>
-                            <div class="analysis-item">
-                                <audio controls style="width: 100%; max-width: 600px;">
+                        <div class="mb-6">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-3">🎙️ Call Recording</h3>
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <audio controls class="w-full">
                                     <source src="${streamUrl}" type="audio/mpeg">
                                     Your browser does not support the audio element.
                                 </audio>
                                 ${recording.recording_duration ? `
-                                    <div class="message-meta" style="margin-top: 8px;">
+                                    <div class="text-sm text-gray-600 mt-2">
                                         Duration: ${Math.floor(recording.recording_duration / 60)}:${String(recording.recording_duration % 60).padStart(2, '0')}
                                     </div>
                                 ` : ''}
@@ -853,7 +713,7 @@
         }
 
         function closeCallDetailsModal() {
-            document.getElementById('callDetailsModal').style.display = 'none';
+            document.getElementById('callDetailsModal').classList.add('hidden');
         }
 
         // Close modal when clicking outside
@@ -869,6 +729,16 @@
             fetchBackendLogs();
             fetchVoiceLogs();
             fetchCallLogs();
+        }
+
+        // Bulk operations (placeholder)
+        function openBulkOps() {
+            alert('Bulk operations panel - Coming soon!\n\nThis will allow you to:\n- Delete old calls\n- Archive logs\n- Cleanup storage');
+        }
+
+        // Export data (placeholder)
+        function exportData() {
+            alert('Export data feature - Coming soon!\n\nThis will allow you to:\n- Export call logs as CSV\n- Download transcripts\n- Generate reports');
         }
         
         // Auto-refresh setup
