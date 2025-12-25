@@ -297,6 +297,28 @@ export default function AgentSettings() {
   const [businessDescription, setBusinessDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
 
+  // Helper to extract clean description from full prompt
+  const getAgentDescription = (prompt: string | undefined): string => {
+    if (!prompt) return "No description available";
+    
+    // Extract the first line which usually has "You are [name], an AI-powered..."
+    const lines = prompt.split('\n');
+    const firstLine = lines[0]?.trim();
+    
+    if (firstLine && firstLine.startsWith('You are')) {
+      return firstLine;
+    }
+    
+    // Fallback: try to find business description
+    const businessDescIndex = lines.findIndex(line => line.includes('What we do:'));
+    if (businessDescIndex !== -1 && lines[businessDescIndex + 1]) {
+      return lines[businessDescIndex + 1].trim();
+    }
+    
+    // Last resort: return first meaningful line
+    return lines.find(line => line.trim().length > 20)?.trim() || "Professional AI voice assistant";
+  }
+
   useEffect(() => {
     if (userId) {
       fetchAgents();
@@ -306,6 +328,7 @@ export default function AgentSettings() {
   // Auto-populate system prompt when business type changes
   useEffect(() => {
     if (businessType && SYSTEM_PROMPT_TEMPLATES[businessType]) {
+      console.log('Setting system prompt for business type:', businessType);
       setSystemPrompt(SYSTEM_PROMPT_TEMPLATES[businessType]);
     }
   }, [businessType]);
@@ -341,10 +364,9 @@ export default function AgentSettings() {
   function handleNewAgent() {
     setSelectedAgent(null);
     setAgentName('');
-    setBusinessType('services');
     setGreeting('Hi! Thanks for calling. How can I help you today?');
     setBusinessDescription('');
-    setSystemPrompt(SYSTEM_PROMPT_TEMPLATES['services']);
+    setBusinessType('services'); // This will trigger useEffect to set system prompt
     setView('create');
     setMessage(null);
   }
@@ -355,10 +377,19 @@ export default function AgentSettings() {
     let foundDescription = '';
     let foundBusinessType = 'services';
 
-    // Extract greeting
+    // Extract greeting - look for the line after GREETING & INTRODUCTION
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes('GREETING & INTRODUCTION:')) {
-        foundGreeting = lines[i + 1]?.trim() || '';
+        // Get the next non-empty line
+        let j = i + 1;
+        while (j < lines.length && !lines[j].trim()) j++;
+        if (j < lines.length) {
+          foundGreeting = lines[j].trim();
+          // Remove the "Then introduce yourself" part if present
+          if (foundGreeting.includes('Then introduce yourself')) {
+            foundGreeting = foundGreeting.split('Then introduce yourself')[0].trim();
+          }
+        }
         break;
       }
     }
@@ -383,15 +414,13 @@ export default function AgentSettings() {
       }
     }
 
-    // Set greeting and description
+    // Set values
     if (foundGreeting) setGreeting(foundGreeting);
     if (foundDescription) setBusinessDescription(foundDescription);
     
     // Set business type - this will trigger useEffect to auto-populate system prompt template
+    // The useEffect will load the correct template for this business type
     setBusinessType(foundBusinessType);
-    
-    // DO NOT manually set system prompt - let the useEffect handle it based on business type
-    // This ensures the system prompt always matches the selected business type template
   }
 
   async function handleSaveAgent() {
@@ -515,7 +544,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
         },
         body: JSON.stringify({ is_active: newIsActive })
       });
@@ -654,11 +683,20 @@ Remember: Your goal is to help customers and represent ${companyName} profession
           ) : listView === 'kanban' ? (
             /* Kanban Board View */
             <div>
-              <div className="mb-4 p-4 bg-lighter/50 rounded-lg border border-border">
-                <p className="text-sm text-text-secondary">
-                  <span className="font-medium text-text">💡 Tip:</span> Drag agents between columns to activate or deactivate them. 
-                  Active agents can receive calls, while deactivated agents are hidden but not deleted.
-                </p>
+              <div className="mb-6 p-5 bg-gradient-to-r from-primary/5 to-primary/10 rounded-xl border border-primary/20 backdrop-blur-sm">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30">
+                    <span className="text-xl">💡</span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold text-text mb-1">How to manage agents</h3>
+                    <p className="text-sm text-text-secondary/90 leading-relaxed">
+                      Drag agents between columns to activate or deactivate them. 
+                      <span className="font-medium text-text"> Active agents</span> can receive calls and appear in your dashboard, 
+                      while <span className="font-medium text-text-secondary">deactivated agents</span> are hidden but retained for future use.
+                    </p>
+                  </div>
+                </div>
               </div>
               <AgentKanbanBoard
                 columns={getKanbanColumns()}
@@ -694,7 +732,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
 
                   <div className="space-y-2 mb-4">
                     <p className="text-sm text-text-secondary line-clamp-3">
-                      {agent.prompt_text?.substring(0, 150) || 'No description'}...
+                      {getAgentDescription(agent.prompt_text)}
                     </p>
                   </div>
 
@@ -772,7 +810,14 @@ Remember: Your goal is to help customers and represent ${companyName} profession
             </label>
             <select
               value={businessType}
-              onChange={(e) => setBusinessType(e.target.value)}
+              onChange={(e) => {
+                const newBusinessType = e.target.value;
+                setBusinessType(newBusinessType);
+                // Immediately update system prompt when business type changes
+                if (newBusinessType && SYSTEM_PROMPT_TEMPLATES[newBusinessType]) {
+                  setSystemPrompt(SYSTEM_PROMPT_TEMPLATES[newBusinessType]);
+                }
+              }}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-black"
             >
               <option value="">Select your business type...</option>

@@ -28,15 +28,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     if (savedUser && token) {
       try {
-        // Verify token is still valid
+        const parsedUser = JSON.parse(savedUser);
+        // Optimistically set user first for better UX
+        setUser(parsedUser);
+        setLoading(false);
+        
+        // Verify token in background - don't logout on failure (might be network issue)
         verifyToken(token).then(valid => {
-          if (valid) {
-            setUser(JSON.parse(savedUser));
-          } else {
-            localStorage.removeItem('relayx_user');
-            localStorage.removeItem('relayx_token');
+          if (!valid) {
+            console.warn('Token verification failed - user may need to re-login eventually');
+            // Don't auto-logout - let them continue until they get a 401
           }
-          setLoading(false);
+        }).catch(err => {
+          console.error('Token verification error:', err);
+          // Don't logout on verification error - could be network issue
         });
       } catch (error) {
         console.error('Failed to parse saved user:', error);
@@ -58,7 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       return response.ok;
     } catch (error) {
-      return false;
+      console.warn('Token verification network error:', error);
+      // Return true on network error - assume token is still valid
+      // Better to let user continue than force logout on network issues
+      return true;
     }
   }
 
