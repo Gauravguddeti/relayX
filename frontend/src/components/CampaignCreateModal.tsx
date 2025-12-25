@@ -390,7 +390,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                   placeholder="Enter campaign name"
                 />
               </div>
@@ -403,7 +403,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                 <select
                   value={formData.agentId}
                   onChange={(e) => setFormData({ ...formData, agentId: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                 >
                   {agents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
@@ -421,7 +421,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                 <select
                   value={formData.timezone}
                   onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                 >
                   {timezones.map((tz) => (
                     <option key={tz} value={tz}>
@@ -440,7 +440,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                   type="datetime-local"
                   value={formData.scheduledStartTime}
                   onChange={(e) => setFormData({ ...formData, scheduledStartTime: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Leave empty to start immediately
@@ -477,7 +477,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                           type="time"
                           value={formData.businessHoursStart}
                           onChange={(e) => setFormData({ ...formData, businessHoursStart: e.target.value })}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                         />
                       </div>
                       <div>
@@ -488,7 +488,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                           type="time"
                           value={formData.businessHoursEnd}
                           onChange={(e) => setFormData({ ...formData, businessHoursEnd: e.target.value })}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                         />
                       </div>
                     </div>
@@ -550,7 +550,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                 <select
                   value={formData.maxRetries}
                   onChange={(e) => setFormData({ ...formData, maxRetries: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                 >
                   <option value="0">No retries</option>
                   <option value="1">1 retry</option>

@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showNewCallModal, setShowNewCallModal] = useState(false);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [campaignRefreshKey, setCampaignRefreshKey] = useState(0);
 
   useEffect(() => {
     if (userId) {
@@ -187,7 +188,7 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <CampaignsList />
+          <CampaignsList key={campaignRefreshKey} />
         )}
       </div>
 
@@ -206,6 +207,7 @@ export default function Dashboard() {
         onClose={() => setShowCampaignModal(false)}
         onSuccess={() => {
           setActiveTab('campaigns');
+          setCampaignRefreshKey(prev => prev + 1); // Force refresh campaigns list
         }}
       />
     </DashboardLayout>

@@ -75,7 +75,7 @@ async def parse_preview(
         file_content = await file.read()
         
         # Parse contacts
-        parser = ContactParser(default_country='US')
+        parser = ContactParser(default_country='IN')
         contacts, errors = parser.parse_file(file_content, file.filename)
         
         if not contacts:
@@ -140,7 +140,7 @@ async def create_campaign(
         file_content = await file.read()
         
         # Parse contacts
-        parser = ContactParser(default_country='US')  # TODO: Make configurable
+        parser = ContactParser(default_country='IN')  # TODO: Make configurable
         contacts, errors = parser.parse_file(file_content, file.filename)
         
         if not contacts:

@@ -7,7 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Calls from './pages/Calls';
 import CallDetails from './pages/CallDetails';
 import CampaignDetail from './pages/CampaignDetail';
-import Contacts from './pages/Contacts';
+import Campaigns from './pages/Campaigns';
 import AgentSettings from './pages/AgentSettings';
 import KnowledgeBase from './pages/KnowledgeBase';
 import TestBot from './pages/TestBot';
@@ -56,7 +56,7 @@ function App() {
             path="/dashboard/contacts"
             element={
               <ProtectedRoute>
-                <Contacts />
+                <Campaigns />
               </ProtectedRoute>
             }
           />
