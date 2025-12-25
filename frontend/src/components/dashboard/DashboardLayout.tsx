@@ -15,7 +15,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: Home },
     { name: 'Calls', path: '/dashboard/calls', icon: Phone },
-    { name: 'Contacts', path: '/dashboard/contacts', icon: Users },
+    { name: 'Campaigns', path: '/dashboard/contacts', icon: Users },
     { name: 'My Agents', path: '/dashboard/bot', icon: Settings },
     { name: 'Knowledge Base', path: '/dashboard/knowledge', icon: BookOpen },
     { name: 'Test Agent', path: '/dashboard/test', icon: TestTube },

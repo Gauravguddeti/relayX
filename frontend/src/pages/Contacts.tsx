@@ -349,8 +349,8 @@ export default function Contacts() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-text">Contacts</h1>
-            <p className="text-gray-600 mt-1">Manage your contact list for quick dialing</p>
+            <h1 className="text-3xl font-bold text-text">Campaigns</h1>
+            <p className="text-text-secondary mt-1">Manage your contact lists and bulk campaigns</p>
           </div>
           <div className="flex space-x-3">
             {isSelectionMode ? (
