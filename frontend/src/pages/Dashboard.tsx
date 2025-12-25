@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Phone, TrendingUp, Clock, CheckCircle, XCircle, PhoneCall, Plus } from 'lucide-react';
+import { Phone, TrendingUp, Clock, CheckCircle, XCircle, PhoneCall, Plus, Users } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import StatCard from '../components/dashboard/StatCard';
 import RecentCallsList from '../components/dashboard/RecentCallsList';
 import UpcomingEvents from '../components/dashboard/UpcomingEvents';
 import CalendarWidget from '../components/dashboard/CalendarWidget';
 import NewCallModal from '../components/dashboard/NewCallModal';
+import CampaignsList from '../components/dashboard/CampaignsList';
+import CampaignCreateModal from '../components/CampaignCreateModal';
 import { useAuth } from '../contexts/AuthContext';
 
 interface DashboardStats {
@@ -16,8 +18,11 @@ interface DashboardStats {
   todayCalls: number;
 }
 
+type TabType = 'calls' | 'campaigns';
+
 export default function Dashboard() {
   const { userId } = useAuth();
+  const [activeTab, setActiveTab] = useState<TabType>('calls');
   const [stats, setStats] = useState<DashboardStats>({
     totalCalls: 0,
     interestedCalls: 0,
@@ -27,12 +32,19 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [showNewCallModal, setShowNewCallModal] = useState(false);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
 
   useEffect(() => {
     if (userId) {
       fetchDashboardStats();
     }
   }, [userId]);
+
+  useEffect(() => {
+    const handleOpenModal = () => setShowCampaignModal(true);
+    window.addEventListener('openCampaignModal', handleOpenModal);
+    return () => window.removeEventListener('openCampaignModal', handleOpenModal);
+  }, []);
 
   async function fetchDashboardStats() {
     if (!userId) return;
@@ -75,72 +87,108 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-600 mt-1">Welcome back! Here's how your assistant is performing.</p>
+            <h1 className="text-3xl font-bold text-text">Dashboard</h1>
+            <p className="text-text-secondary mt-1">Welcome back! Here's how your assistant is performing.</p>
           </div>
           <button
-            onClick={() => setShowNewCallModal(true)}
-            className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl font-medium"
+            onClick={() => activeTab === 'calls' ? setShowNewCallModal(true) : setShowCampaignModal(true)}
+            className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl font-medium"
           >
             <Plus className="w-5 h-5" />
-            <span>New Call</span>
+            <span>{activeTab === 'calls' ? 'New Call' : 'New Campaign'}</span>
           </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200 bg-white rounded-t-lg shadow-sm">
+          <nav className="-mb-px flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('calls')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'calls'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Phone className="w-5 h-5" />
+                <span>Recent Calls</span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('campaigns')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'campaigns'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Users className="w-5 h-5" />
+                <span>Campaigns</span>
+              </div>
+            </button>
+          </nav>
         </div>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard
             title="Today's Calls"
-            value={stats.todayCalls}
+            value={stats.todayCalls || 0}
             icon={<Phone className="w-6 h-6" />}
             color="blue"
             loading={loading}
           />
           <StatCard
             title="Total Calls"
-            value={stats.totalCalls}
+            value={stats.totalCalls || 0}
             icon={<PhoneCall className="w-6 h-6" />}
             color="indigo"
             loading={loading}
           />
           <StatCard
             title="Interested"
-            value={stats.interestedCalls}
+            value={stats.interestedCalls || 0}
             icon={<CheckCircle className="w-6 h-6" />}
             color="green"
             loading={loading}
           />
           <StatCard
             title="Avg. Confidence"
-            value={`${Math.round(stats.avgConfidence * 100)}%`}
+            value={`${Math.round((stats.avgConfidence || 0) * 100)}%`}
             icon={<TrendingUp className="w-6 h-6" />}
             color="purple"
             loading={loading}
           />
         </div>
 
-        {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Calls - Takes 2 columns */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900">Recent Calls</h2>
-                <p className="text-sm text-gray-600 mt-1">View and analyze your recent conversations</p>
+        {/* Content based on active tab */}
+        {activeTab === 'calls' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Recent Calls - Takes 2 columns */}
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-lg shadow">
+                <div className="p-6 border-b border-gray-200">
+                  <h2 className="text-xl font-semibold text-gray-900">Recent Calls</h2>
+                  <p className="text-sm text-gray-600 mt-1">View and analyze your recent conversations</p>
+                </div>
+                <RecentCallsList />
               </div>
-              <RecentCallsList />
+            </div>
+
+            {/* Sidebar - Takes 1 column */}
+            <div className="lg:col-span-1 space-y-6">
+              {/* Upcoming Events */}
+              <UpcomingEvents />
+              
+              {/* Cal.com Calendar Widget */}
+              <CalendarWidget />
             </div>
           </div>
-
-          {/* Sidebar - Takes 1 column */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Upcoming Events */}
-            <UpcomingEvents />
-            
-            {/* Cal.com Calendar Widget */}
-            <CalendarWidget />
-          </div>
-        </div>
+        ) : (
+          <CampaignsList />
+        )}
       </div>
 
       {/* New Call Modal */}
@@ -149,6 +197,15 @@ export default function Dashboard() {
         onClose={() => setShowNewCallModal(false)}
         onSuccess={() => {
           fetchDashboardStats();
+        }}
+      />
+
+      {/* New Campaign Modal */}
+      <CampaignCreateModal
+        isOpen={showCampaignModal}
+        onClose={() => setShowCampaignModal(false)}
+        onSuccess={() => {
+          setActiveTab('campaigns');
         }}
       />
     </DashboardLayout>

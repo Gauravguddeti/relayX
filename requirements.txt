@@ -41,6 +41,12 @@ brotli==1.1.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
+# Bulk Campaigns
+phonenumbers==8.13.27
+pandas==2.1.4
+openpyxl==3.1.2
+APScheduler==3.10.4
+
 # Logging
 loguru==0.7.2
 

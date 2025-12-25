@@ -896,7 +896,7 @@ async def auto_schedule_booking(call_id: str, transcript: str):
 async def status_callback(call_id: str, request: Request):
     """
     Handle Twilio status callbacks
-    Updates call status in database
+    Updates call status in database and campaign contact status
     """
     try:
         form_data = await request.form()
@@ -907,6 +907,21 @@ async def status_callback(call_id: str, request: Request):
         logger.info(f"Status callback for {call_id}: {status} | SID: {call_sid}")
         
         db = get_db()
+        
+        # Get call to check if it's part of a campaign
+        call_result = db.client.table("calls").select("*").eq("id", call_id).execute()
+        if not call_result.data:
+            logger.error(f"Call {call_id} not found")
+            return {"status": "error", "message": "Call not found"}
+        
+        call = call_result.data[0]
+        campaign_id = call.get('campaign_id')
+        
+        # Idempotency check - only update if not already in terminal state
+        if call['status'] in ["completed", "failed"]:
+            logger.info(f"Call {call_id} already in terminal state {call['status']}, skipping")
+            return {"status": "ok", "message": "already_processed"}
+        
         update_data = {"status": status}
         
         # Handle terminal states (call is done)
@@ -921,6 +936,10 @@ async def status_callback(call_id: str, request: Request):
                     await generate_call_analysis(call_id, db)
                 except Exception as analysis_error:
                     logger.error(f"Failed to generate call analysis for {call_id}: {analysis_error}")
+            
+            # Update campaign contact if this is a campaign call
+            if campaign_id:
+                await update_campaign_contact_status(call_id, status, db)
         
         await db.update_call(call_id, **update_data)
         
@@ -929,6 +948,67 @@ async def status_callback(call_id: str, request: Request):
     except Exception as e:
         logger.error(f"Error in status callback for {call_id}: {e}")
         return {"status": "error", "message": str(e)}
+
+
+async def update_campaign_contact_status(call_id: str, twilio_status: str, db):
+    """Update campaign contact status based on call outcome"""
+    try:
+        # Get contact for this call
+        contact_result = db.client.table("campaign_contacts").select("*").eq("call_id", call_id).execute()
+        
+        if not contact_result.data:
+            return  # Not a campaign call
+        
+        contact = contact_result.data[0]
+        
+        # Only update if still in calling state (idempotency)
+        if contact['state'] != 'calling':
+            logger.info(f"Contact {contact['id']} already processed, skipping")
+            return
+        
+        # Map Twilio status to contact outcome
+        outcome_map = {
+            "completed": "completed",
+            "busy": "busy",
+            "no-answer": "no-answer",
+            "failed": "failed",
+            "canceled": "failed"
+        }
+        
+        outcome = outcome_map.get(twilio_status, "failed")
+        
+        # Determine if retryable
+        retryable_outcomes = ["no-answer", "busy", "failed"]
+        settings_result = db.client.table("bulk_campaigns").select("settings_snapshot").eq("id", contact['campaign_id']).execute()
+        
+        max_retries = 3
+        if settings_result.data:
+            max_retries = settings_result.data[0]['settings_snapshot'].get('retry_policy', {}).get('max_retries', 3)
+        
+        # Update contact
+        update_data = {
+            "outcome": outcome,
+            "locked_until": None
+        }
+        
+        # Check if we should retry
+        if outcome in retryable_outcomes and contact['retry_count'] < max_retries:
+            # Schedule for retry
+            update_data['state'] = 'pending'
+            update_data['retry_count'] = contact['retry_count'] + 1
+            logger.info(f"Contact {contact['id']} scheduled for retry {update_data['retry_count']}/{max_retries}")
+        else:
+            # Terminal state
+            if outcome == "completed":
+                update_data['state'] = 'completed'
+            else:
+                update_data['state'] = 'failed'
+            logger.info(f"Contact {contact['id']} marked as {update_data['state']}")
+        
+        db.client.table("campaign_contacts").update(update_data).eq("id", contact['id']).execute()
+        
+    except Exception as e:
+        logger.error(f"Error updating campaign contact status: {e}")
 
 
 @app.post("/callbacks/recording/{call_id}")

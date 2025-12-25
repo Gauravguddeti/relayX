@@ -31,6 +31,7 @@ import auth_routes
 import admin_routes
 import admin_auth
 import cal_routes
+import campaign_routes
 
 # Load environment variables
 load_dotenv()
@@ -54,6 +55,9 @@ app.include_router(admin_routes.router)
 
 # Include Cal.com routes
 app.include_router(cal_routes.router)
+
+# Include campaign routes
+app.include_router(campaign_routes.router)
 
 # Mount static files for dashboard
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
@@ -1183,7 +1187,28 @@ async def startup_event():
     except Exception as e:
         logger.error(f"LLM connection failed: {e}")
     
+    # Start campaign scheduler
+    try:
+        from scheduler import start_scheduler
+        start_scheduler()
+        logger.info("Campaign scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start campaign scheduler: {e}")
+    
     logger.info("Backend startup complete")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Shutting down RelayX Backend...")
+    
+    try:
+        from scheduler import stop_scheduler
+        stop_scheduler()
+        logger.info("Campaign scheduler stopped")
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
 
 
 # ==================== TEMPLATES & PREVIEW API ====================

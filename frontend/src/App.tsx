@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import Calls from './pages/Calls';
 import CallDetails from './pages/CallDetails';
+import CampaignDetail from './pages/CampaignDetail';
 import Contacts from './pages/Contacts';
 import AgentSettings from './pages/AgentSettings';
 import KnowledgeBase from './pages/KnowledgeBase';
@@ -40,6 +41,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <CallDetails />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/campaigns/:campaignId"
+            element={
+              <ProtectedRoute>
+                <CampaignDetail />
               </ProtectedRoute>
             }
           />

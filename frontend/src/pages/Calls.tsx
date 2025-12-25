@@ -109,7 +109,7 @@ export default function Calls() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Call History</h1>
+            <h1 className="text-3xl font-bold text-text">Call History</h1>
             <p className="text-gray-600 mt-1">View and manage all your calls</p>
           </div>
           <button
