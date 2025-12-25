@@ -808,13 +808,199 @@ Return ONLY valid JSON (no other text):
         
         logger.info(f"✅ Call analysis saved for {call_id}: {analysis_data.get('outcome')}")
         
-        # Auto-schedule booking if user is interested
+        # Check for scheduling intent and create calendar event if detected
         outcome = analysis_data.get("outcome", "")
-        if outcome == "interested":
-            await auto_schedule_booking(call_id, transcript)
+        if outcome in ["interested", "call_later"]:
+            await auto_create_calendar_event(
+                call_id=call_id,
+                transcript=conversation_text,
+                call_summary=analysis_data.get("summary", ""),
+                outcome=outcome,
+                db=db
+            )
         
     except Exception as e:
         logger.error(f"Error generating call analysis for {call_id}: {e}")
+
+
+async def auto_create_calendar_event(
+    call_id: str,
+    transcript: str,
+    call_summary: str,
+    outcome: str,
+    db
+):
+    """
+    Automatically detect scheduling intent and create calendar event + Cal.com booking.
+    
+    This is the core workflow for end-to-end calendar automation:
+    1. Detect if a specific time was agreed upon during the call
+    2. Extract event details (date, time, type, contact info)
+    3. Create Cal.com booking via API
+    4. Store event in database linked to this call
+    5. Event appears in dashboard and Cal.com calendar
+    """
+    try:
+        logger.info(f"🗓️  Checking for scheduling intent in call {call_id}")
+        
+        # Import scheduling detector
+        import sys
+        sys.path.insert(0, '/app/shared')
+        from scheduling_detector import scheduling_detector
+        
+        # Detect scheduling intent
+        scheduling_data = await scheduling_detector.detect_scheduling_intent(
+            transcript=transcript,
+            call_summary=call_summary,
+            outcome=outcome
+        )
+        
+        if not scheduling_data or not scheduling_data.get("scheduled"):
+            logger.info(f"No scheduling detected in call {call_id}")
+            return
+        
+        logger.info(f"✅ Scheduling detected: {scheduling_data}")
+        
+        # Get call details for contact info
+        call_details = await db.get_call(call_id)
+        if not call_details:
+            logger.error(f"Could not find call details for {call_id}")
+            return
+        
+        contact_phone = call_details.get("to_number")
+        user_id = call_details.get("user_id")
+        campaign_id = call_details.get("campaign_id")
+        
+        if not user_id:
+            logger.error(f"No user_id found for call {call_id}")
+            return
+        
+        # Prepare event data
+        event_type = scheduling_data.get("event_type", "call")
+        contact_name = scheduling_data.get("contact_name", "Customer")
+        date_str = scheduling_data.get("date")
+        time_str = scheduling_data.get("time")
+        timezone = scheduling_data.get("timezone", "America/New_York")
+        notes = scheduling_data.get("notes", "")
+        
+        # Convert to ISO datetime
+        iso_datetime = scheduling_detector.convert_to_iso_datetime(
+            date_str, time_str, timezone
+        )
+        
+        # Generate event title
+        event_titles = {
+            "demo": "Product Demo",
+            "followup": "Follow-up Call",
+            "call": "Scheduled Call",
+            "meeting": "Meeting"
+        }
+        title = event_titles.get(event_type, "Scheduled Call")
+        
+        # Create Cal.com booking if configured
+        cal_booking_id = None
+        cal_booking_uid = None
+        contact_email = None  # We don't have email from call, use placeholder
+        
+        import httpx
+        async with httpx.AsyncClient() as client:
+            # Check Cal.com status
+            cal_status_response = await client.get("http://backend:8000/cal/status")
+            
+            if cal_status_response.status_code == 200:
+                cal_data = cal_status_response.json()
+                
+                if cal_data.get("configured") and cal_data.get("event_types"):
+                    try:
+                        # Get first available event type
+                        event_type_id = cal_data["event_types"][0]["id"]
+                        
+                        # Generate email from phone if not available
+                        if not contact_email:
+                            # Use sanitized phone as email placeholder
+                            sanitized_phone = contact_phone.replace("+", "").replace("-", "")
+                            contact_email = f"customer_{sanitized_phone}@placeholder.com"
+                        
+                        # Create Cal.com booking
+                        booking_payload = {
+                            "event_type_id": event_type_id,
+                            "start_time": iso_datetime,
+                            "name": contact_name,
+                            "email": contact_email,
+                            "phone": contact_phone,
+                            "notes": f"Auto-scheduled from call. {notes}",
+                            "timezone": timezone
+                        }
+                        
+                        booking_response = await client.post(
+                            "http://backend:8000/cal/create-booking",
+                            json=booking_payload,
+                            timeout=30.0
+                        )
+                        
+                        if booking_response.status_code == 200:
+                            booking_data = booking_response.json()
+                            cal_booking_id = booking_data.get("id")
+                            cal_booking_uid = booking_data.get("uid")
+                            booking_url = booking_data.get("booking_url") or booking_data.get("bookingUrl")
+                            logger.info(f"✅ Created Cal.com booking: {cal_booking_uid}")
+                            
+                            # Send SMS with booking link if we have a phone number and booking URL
+                            if contact_phone and booking_url:
+                                try:
+                                    sms_body = f"Your {title} is confirmed for {date_str} at {time_str}. Join here: {booking_url}"
+                                    twilio_client.messages.create(
+                                        body=sms_body,
+                                        from_=TWILIO_PHONE_NUMBER,
+                                        to=contact_phone
+                                    )
+                                    logger.info(f"📱 Sent booking link SMS to {contact_phone}")
+                                except Exception as sms_error:
+                                    logger.warning(f"Failed to send booking SMS: {sms_error}")
+                        else:
+                            logger.warning(f"Cal.com booking failed ({booking_response.status_code}): {booking_response.text}")
+                            # Log the payload for debugging
+                            logger.warning(f"Booking payload: {booking_payload}")
+                    
+                    except Exception as e:
+                        logger.warning(f"Failed to create Cal.com booking: {e}")
+                        import traceback
+                        logger.warning(traceback.format_exc())
+            
+            # Store event in database (even if Cal.com booking failed)
+            event_payload = {
+                "user_id": user_id,
+                "call_id": call_id,
+                "campaign_id": campaign_id,
+                "event_type": event_type,
+                "title": title,
+                "scheduled_at": iso_datetime,
+                "duration_minutes": 30,
+                "timezone": timezone,
+                "contact_name": contact_name,
+                "contact_email": contact_email,
+                "contact_phone": contact_phone,
+                "cal_booking_id": cal_booking_id,
+                "cal_booking_uid": cal_booking_uid,
+                "status": "scheduled",
+                "notes": notes,
+                "created_automatically": True
+            }
+            
+            # Use Supabase client to insert event
+            result = db.client.table("scheduled_events").insert(event_payload).execute()
+            
+            event_id = result.data[0]["id"] if result.data else None
+            
+            logger.info(f"🎉 Successfully created scheduled event {event_id} from call {call_id}")
+            logger.info(f"   📅 {title} on {date_str} at {time_str}")
+            logger.info(f"   👤 Contact: {contact_name} ({contact_phone})")
+            logger.info(f"   🔗 Cal.com booking: {cal_booking_uid or 'Not created'}")
+        
+    except Exception as e:
+        logger.error(f"Error creating calendar event for call {call_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 async def auto_schedule_booking(call_id: str, transcript: str):

@@ -18,3 +18,4 @@ ffmpeg-python==0.2.0
 # Utilities
 python-dotenv==1.0.0
 loguru==0.7.2
+python-dateutil==2.8.2

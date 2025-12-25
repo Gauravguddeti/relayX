@@ -187,6 +187,8 @@ class CalClient:
             if notes:
                 payload["responses"]["notes"] = notes
             
+            logger.info(f"Creating Cal.com booking with payload: {payload}")
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.base_url}/bookings",
@@ -194,10 +196,23 @@ class CalClient:
                     json=payload,
                     timeout=10.0
                 )
+                
+                logger.info(f"Cal.com API response status: {response.status_code}")
+                
+                if response.status_code != 200:
+                    logger.error(f"Cal.com API error: {response.text}")
+                    
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                logger.info(f"Cal.com booking created successfully: {result}")
+                return result
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Cal.com HTTP error ({e.response.status_code}): {e.response.text}")
+            return None
         except Exception as e:
             logger.error(f"Error creating booking: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     async def get_booking_link(

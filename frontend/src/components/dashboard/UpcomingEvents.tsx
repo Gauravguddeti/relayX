@@ -21,37 +21,26 @@ export default function UpcomingEvents() {
 
   async function fetchUpcomingEvents() {
     try {
-      // TODO: Replace with actual API call when backend endpoint is ready
-      // For now, using mock data
-      const mockEvents: Event[] = [
-        {
-          id: '1',
-          title: 'Product Demo',
-          type: 'demo',
-          scheduled_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), // 2 hours from now
-          contact_name: 'John Smith',
-          phone_number: '+1234567890',
-          notes: 'Interested in premium plan',
-        },
-        {
-          id: '2',
-          title: 'Follow-up Call',
-          type: 'followup',
-          scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow
-          contact_name: 'Sarah Johnson',
-          phone_number: '+1987654321',
-        },
-        {
-          id: '3',
-          title: 'Consultation Call',
-          type: 'call',
-          scheduled_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), // 2 days
-          contact_name: 'Mike Davis',
-          phone_number: '+1555666777',
-        },
-      ];
-      
-      setEvents(mockEvents);
+      const token = localStorage.getItem('relayx_token');
+      if (!token) {
+        setEvents([]);
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch('/events/upcoming?limit=5', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setEvents(data.events || []);
+      } else {
+        console.error('Failed to fetch upcoming events:', response.statusText);
+        setEvents([]);
+      }
     } catch (error) {
       console.error('Failed to fetch events:', error);
       setEvents([]);

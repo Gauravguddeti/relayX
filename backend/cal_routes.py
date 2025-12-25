@@ -159,29 +159,44 @@ async def create_booking(request: CreateBookingRequest):
     # Validate datetime format
     try:
         datetime.fromisoformat(request.start_time.replace("Z", "+00:00"))
-    except ValueError:
+    except ValueError as e:
+        logger.error(f"Invalid datetime format: {request.start_time} - {e}")
         raise HTTPException(
             status_code=400,
-            detail="Invalid start_time format. Use ISO format: YYYY-MM-DDTHH:MM:SSZ"
+            detail=f"Invalid start_time format: {request.start_time}. Use ISO format: YYYY-MM-DDTHH:MM:SSZ"
         )
     
-    booking = await cal_client.create_booking(
-        event_type_id=request.event_type_id,
-        start_time=request.start_time,
-        name=request.name,
-        email=request.email,
-        phone=request.phone,
-        notes=request.notes,
-        timezone=request.timezone
-    )
+    logger.info(f"Creating Cal.com booking for {request.name} at {request.start_time}")
     
-    if not booking:
+    try:
+        booking = await cal_client.create_booking(
+            event_type_id=request.event_type_id,
+            start_time=request.start_time,
+            name=request.name,
+            email=request.email,
+            phone=request.phone,
+            notes=request.notes,
+            timezone=request.timezone
+        )
+        
+        if not booking:
+            logger.error(f"Cal.com booking returned None for {request.name}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create booking - Cal.com returned no data"
+            )
+        
+        logger.info(f"Successfully created booking: {booking.get('uid') or booking.get('id')}")
+        return booking
+        
+    except Exception as e:
+        logger.error(f"Error creating Cal.com booking: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail="Failed to create booking"
+            detail=f"Failed to create booking: {str(e)}"
         )
-    
-    return booking
 
 
 @router.post("/send-link-sms")

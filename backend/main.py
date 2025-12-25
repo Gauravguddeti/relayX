@@ -33,6 +33,7 @@ import admin_auth
 import cal_routes
 import campaign_routes
 import contact_routes
+import event_routes
 
 # Load environment variables
 load_dotenv()
@@ -62,6 +63,9 @@ app.include_router(campaign_routes.router)
 
 # Include contact routes
 app.include_router(contact_routes.router)
+
+# Include event routes
+app.include_router(event_routes.router)
 
 # Mount static files for dashboard
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
@@ -1180,6 +1184,10 @@ async def startup_event():
         # Initialize contact routes with database
         contact_routes.init_db(db)
         logger.info("Contact routes initialized")
+        
+        # Initialize event routes with database
+        event_routes.init_db(db)
+        logger.info("Event routes initialized")
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
     
