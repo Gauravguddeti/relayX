@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Pause, Download, Phone, CheckCircle, XCircle, Clock, User, Globe, Calendar, Edit2, Check, X } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Download, Phone, CheckCircle, XCircle, Clock, User, Globe, Calendar, Edit2, Check, X, Trash2, Upload, UserPlus } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Campaign {
   id: string;
@@ -52,6 +53,7 @@ const outcomeLabels: any = {
 export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
+  const { userId } = useAuth();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +61,11 @@ export default function CampaignDetail() {
   const [filterState, setFilterState] = useState<string>('all');
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
+  const [showAddContactsModal, setShowAddContactsModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [addContactsLoading, setAddContactsLoading] = useState(false);
+  const [addContactsError, setAddContactsError] = useState('');
+  const [addContactsSuccess, setAddContactsSuccess] = useState('');
 
   useEffect(() => {
     fetchCampaignData();
@@ -76,6 +83,12 @@ export default function CampaignDetail() {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('relayx_token')}` }
         })
       ]);
+
+      // Handle 401 - redirect to login
+      if (campaignRes.status === 401 || contactsRes.status === 401) {
+        navigate('/login');
+        return;
+      }
 
       if (campaignRes.ok) {
         const campaignData = await campaignRes.json();
@@ -133,6 +146,68 @@ export default function CampaignDetail() {
       }
     } catch (error) {
       console.error('Failed to rename campaign:', error);
+    }
+  }
+
+  async function handleDeleteCampaign() {
+    if (!confirm('Are you sure you want to permanently delete this campaign? This action cannot be undone and will delete all campaign data and contacts.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/campaigns/${campaignId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        }
+      });
+
+      if (response.ok) {
+        navigate('/dashboard/contacts');
+      }
+    } catch (error) {
+      console.error('Failed to delete campaign:', error);
+    }
+  }
+
+  async function handleAddContacts() {
+    if (!uploadFile) return;
+
+    setAddContactsLoading(true);
+    setAddContactsError('');
+    setAddContactsSuccess('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+
+      const response = await fetch(`/campaigns/${campaignId}/add-contacts`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to add contacts');
+      }
+
+      setAddContactsSuccess(`Added ${data.added_count} new contacts. ${data.skipped_duplicates > 0 ? `Skipped ${data.skipped_duplicates} duplicates.` : ''}`);
+      setUploadFile(null);
+      await fetchCampaignData();
+      
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        setShowAddContactsModal(false);
+        setAddContactsSuccess('');
+      }, 2000);
+    } catch (err: any) {
+      setAddContactsError(err.message);
+    } finally {
+      setAddContactsLoading(false);
     }
   }
 
@@ -199,7 +274,7 @@ export default function CampaignDetail() {
                       if (e.key === 'Enter') handleRename();
                       if (e.key === 'Escape') setIsEditingName(false);
                     }}
-                    className="text-3xl font-bold text-text border-b-2 border-blue-500 focus:outline-none px-2 bg-transparent"
+                    className="text-3xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none px-2 bg-transparent"
                     autoFocus
                   />
                   <button
@@ -217,7 +292,7 @@ export default function CampaignDetail() {
                 </div>
               ) : (
                 <div className="flex items-center space-x-2 group">
-                  <h1 className="text-3xl font-bold text-text">{campaign.name}</h1>
+                  <h1 className="text-3xl font-bold text-gray-900">{campaign.name}</h1>
                   <button
                     onClick={() => {
                       setEditedName(campaign.name);
@@ -244,6 +319,14 @@ export default function CampaignDetail() {
           </div>
 
           <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setShowAddContactsModal(true)}
+              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              <UserPlus className="w-5 h-5" />
+              <span>Add Contacts</span>
+            </button>
+
             {campaign.state === 'running' && (
               <button
                 onClick={() => handleAction('pause')}
@@ -273,6 +356,15 @@ export default function CampaignDetail() {
               <Download className="w-5 h-5" />
               <span>Export CSV</span>
             </button>
+
+            <button
+              onClick={handleDeleteCampaign}
+              className="flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+              title="Delete campaign permanently"
+            >
+              <Trash2 className="w-5 h-5" />
+              <span>Delete</span>
+            </button>
           </div>
         </div>
 
@@ -283,7 +375,7 @@ export default function CampaignDetail() {
               <span className="text-sm text-gray-600">Total Contacts</span>
               <User className="w-5 h-5 text-gray-400" />
             </div>
-            <p className="text-3xl font-bold text-text">{campaign.stats.total}</p>
+            <p className="text-3xl font-bold text-gray-900">{campaign.stats.total}</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -291,7 +383,7 @@ export default function CampaignDetail() {
               <span className="text-sm text-gray-600">Pending</span>
               <Clock className="w-5 h-5 text-gray-400" />
             </div>
-            <p className="text-3xl font-bold text-text-secondary">{campaign.stats.pending}</p>
+            <p className="text-3xl font-bold text-gray-900">{campaign.stats.pending}</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -479,6 +571,80 @@ export default function CampaignDetail() {
           </div>
         </div>
       </div>
+
+      {/* Add Contacts Modal */}
+      {showAddContactsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Add Contacts</h3>
+              <button
+                onClick={() => {
+                  setShowAddContactsModal(false);
+                  setUploadFile(null);
+                  setAddContactsError('');
+                  setAddContactsSuccess('');
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Upload a CSV file to add more contacts to this campaign. Duplicate phone numbers will be skipped automatically.
+            </p>
+
+            {addContactsError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{addContactsError}</p>
+              </div>
+            )}
+
+            {addContactsSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">{addContactsSuccess}</p>
+              </div>
+            )}
+
+            <div className="mb-4">
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-2"
+              />
+              {uploadFile && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Selected: {uploadFile.name} ({(uploadFile.size / 1024).toFixed(2)} KB)
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowAddContactsModal(false);
+                  setUploadFile(null);
+                  setAddContactsError('');
+                  setAddContactsSuccess('');
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddContacts}
+                disabled={!uploadFile || addContactsLoading}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Upload className="w-5 h-5" />
+                <span>{addContactsLoading ? 'Adding...' : 'Add Contacts'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

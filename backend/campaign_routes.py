@@ -464,3 +464,80 @@ async def delete_campaign(
     except Exception as e:
         logger.error(f"Error deleting campaign: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{campaign_id}/add-contacts")
+async def add_contacts_to_campaign(
+    campaign_id: str,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    db: SupabaseDB = Depends(get_db)
+):
+    """Add more contacts to an existing campaign by uploading a CSV file"""
+    try:
+        # Verify campaign exists and belongs to user
+        campaign_result = db.client.table("bulk_campaigns").select("*").eq("id", campaign_id).eq("user_id", user_id).execute()
+        
+        if not campaign_result.data:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        campaign = campaign_result.data[0]
+        
+        # Read and parse file
+        file_content = await file.read()
+        parser = ContactParser(default_country='IN')
+        contacts, errors = parser.parse_file(file_content, file.filename)
+        
+        if not contacts:
+            error_msg = "; ".join(errors) if errors else "No valid contacts found in file"
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Get existing contacts for this campaign to avoid duplicates
+        existing_contacts = db.client.table("campaign_contacts").select("phone").eq("campaign_id", campaign_id).execute()
+        existing_phones = {c['phone'] for c in existing_contacts.data}
+        
+        # Filter out duplicates
+        new_contacts = [c for c in contacts if c['phone'] not in existing_phones]
+        
+        if not new_contacts:
+            raise HTTPException(status_code=400, detail="All contacts already exist in this campaign")
+        
+        # Prepare contact records
+        contact_records = []
+        for contact in new_contacts:
+            contact_records.append({
+                "campaign_id": campaign_id,
+                "phone": contact['phone'],
+                "name": contact.get('name'),
+                "metadata": contact.get('metadata', {}),
+                "state": "pending",
+                "retry_count": 0
+            })
+        
+        # Insert new contacts
+        db.client.table("campaign_contacts").insert(contact_records).execute()
+        
+        # Update campaign stats
+        new_total = campaign['stats']['total'] + len(new_contacts)
+        new_pending = campaign['stats']['pending'] + len(new_contacts)
+        updated_stats = {
+            **campaign['stats'],
+            'total': new_total,
+            'pending': new_pending
+        }
+        
+        db.client.table("bulk_campaigns").update({"stats": updated_stats}).eq("id", campaign_id).execute()
+        
+        logger.info(f"Added {len(new_contacts)} new contacts to campaign {campaign_id}")
+        
+        return {
+            "message": "Contacts added successfully",
+            "added_count": len(new_contacts),
+            "skipped_duplicates": len(contacts) - len(new_contacts),
+            "total_contacts": new_total
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding contacts to campaign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

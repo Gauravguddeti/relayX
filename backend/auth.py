@@ -11,7 +11,7 @@ import os
 # Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days
 
 
@@ -52,8 +52,10 @@ def verify_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Could not validate credentials")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Could not validate credentials: {str(e)}")
 
 
 async def get_current_user_id(authorization: str = Header(None)) -> str:

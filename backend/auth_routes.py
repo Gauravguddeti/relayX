@@ -53,6 +53,12 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+@router.get("/verify-token")
+async def verify_token_endpoint(user_id: str = Depends(get_current_user_id)):
+    """Verify if the current access token is valid"""
+    return {"valid": True, "user_id": user_id}
+
+
 @router.post("/signup", response_model=TokenResponse)
 async def signup(request: SignupRequest):
     """Register a new user"""

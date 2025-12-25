@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Upload, FileText, AlertCircle, Check } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Agent {
   id: string;
@@ -13,6 +14,7 @@ interface CampaignCreateModalProps {
 }
 
 export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: CampaignCreateModalProps) {
+  const { userId } = useAuth();
   const [step, setStep] = useState<'upload' | 'settings'>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -35,7 +37,7 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
   });
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && userId) {
       fetchAgents();
       // Set default campaign name with timestamp
       setFormData(prev => ({
@@ -43,11 +45,13 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
         name: `Campaign ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
       }));
     }
-  }, [isOpen]);
+  }, [isOpen, userId]);
 
   async function fetchAgents() {
+    if (!userId) return;
+
     try {
-      const response = await fetch('/agents', {
+      const response = await fetch(`/agents?user_id=${userId}&is_active=true`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
         }
@@ -55,9 +59,10 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
 
       if (response.ok) {
         const data = await response.json();
-        setAgents(data.agents || []);
-        if (data.agents?.length > 0) {
-          setFormData(prev => ({ ...prev, agentId: data.agents[0].id }));
+        const agentList = Array.isArray(data) ? data : (data.agents || []);
+        setAgents(agentList);
+        if (agentList.length > 0) {
+          setFormData(prev => ({ ...prev, agentId: agentList[0].id }));
         }
       }
     } catch (error) {
@@ -440,6 +445,8 @@ export default function CampaignCreateModal({ isOpen, onClose, onSuccess }: Camp
                   type="datetime-local"
                   value={formData.scheduledStartTime}
                   onChange={(e) => setFormData({ ...formData, scheduledStartTime: e.target.value })}
+                  min={new Date().toISOString().slice(0, 16)}
+                  step="300"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                 />
                 <p className="text-xs text-gray-500 mt-1">

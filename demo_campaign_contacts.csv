@@ -1,21 +1,3 @@
-name,phone,email,company
-Rajesh Kumar,+917276082005,rajesh.kumar@techsolutions.in,Tech Solutions
-Priya Sharma,+917666815841,priya.sharma@innovate.co.in,Innovate India
-Amit Patel,+917276082005,amit.patel@digitalindia.com,Digital India
-Sneha Reddy,+917666815841,sneha.reddy@cloudtech.in,CloudTech
-Vikram Singh,+917276082005,vikram.singh@nexgen.co.in,NexGen Solutions
-Anjali Gupta,+917666815841,anjali.gupta@brightminds.in,BrightMinds
-Suresh Nair,+917276082005,suresh.nair@futuretechindia.com,FutureTech India
-Kavya Menon,+917666815841,kavya.menon@greenleaftech.in,GreenLeaf Tech
-Rahul Verma,+917276082005,rahul.verma@blueoceandigital.co.in,BlueOcean Digital
-Neha Chopra,+917666815841,neha.chopra@skylineventures.in,Skyline Ventures
-Arjun Mehta,+917276082005,arjun.mehta@sunrisetech.co.in,Sunrise Tech
-Pooja Iyer,+917666815841,pooja.iyer@momentum.in,Momentum India
-Karthik Rao,+917276082005,karthik.rao@pinnaclesolutions.co.in,Pinnacle Solutions
-Divya Krishnan,+917666815841,divya.krishnan@horizondigital.in,Horizon Digital
-Manoj Desai,+917276082005,manoj.desai@summittech.co.in,Summit Tech
-Ritu Agarwal,+917666815841,ritu.agarwal@cascadesystems.in,Cascade Systems
-Sanjay Joshi,+917276082005,sanjay.joshi@vertexinnovation.co.in,Vertex Innovation
-Meera Bose,+917666815841,meera.bose@zenithdigital.in,Zenith Digital
-Deepak Malhotra,+917276082005,deepak.malhotra@beacontech.co.in,Beacon Tech
-Lakshmi Pillai,+917666815841,lakshmi.pillai@alphaindia.in,Alpha India
+Phone,Name,State,Outcome,Retry Count,Last Attempted
+"+917276082005","Rajesh Kumar","pending","","0",""
+"+917666815841","Priya Sharma","pending","","0",""
