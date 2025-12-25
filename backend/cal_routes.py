@@ -189,6 +189,9 @@ async def create_booking(request: CreateBookingRequest):
         logger.info(f"Successfully created booking: {booking.get('uid') or booking.get('id')}")
         return booking
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Error creating Cal.com booking: {e}")
         import traceback
