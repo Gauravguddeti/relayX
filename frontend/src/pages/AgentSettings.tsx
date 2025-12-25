@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Save, Plus, Edit, Trash2, Bot, MessageSquare, Building2, Sparkles, Check, ChevronRight } from 'lucide-react';
+import { Save, Plus, Edit, Trash2, Bot, MessageSquare, Building2, Sparkles, Check, ChevronRight, LayoutGrid, List as ListIcon } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import { useAuth } from '../contexts/AuthContext';
+import { AgentKanbanBoard, type AgentColumn } from '../components/ui/AgentKanbanBoard';
 
 interface Agent {
   id: string;
@@ -287,6 +288,7 @@ export default function AgentSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [view, setView] = useState<'list' | 'edit' | 'create'>('list');
+  const [listView, setListView] = useState<'grid' | 'kanban'>('kanban');
 
   // Editable fields
   const [agentName, setAgentName] = useState('');
@@ -505,6 +507,74 @@ Remember: Your goal is to help customers and represent ${companyName} profession
     return prompt;
   }
 
+  async function handleAgentMove(agentId: string, fromColumnId: string, toColumnId: string) {
+    const newIsActive = toColumnId === 'active';
+    
+    try {
+      const response = await fetch(`/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ is_active: newIsActive })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update agent status');
+      }
+
+      // Update local state
+      setAgents(agents.map(agent => 
+        agent.id === agentId ? { ...agent, is_active: newIsActive } : agent
+      ));
+
+      setMessage({
+        type: 'success',
+        text: `Agent ${newIsActive ? 'activated' : 'deactivated'} successfully`
+      });
+      
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error) {
+      console.error('Error updating agent status:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to update agent status'
+      });
+      // Refresh to get correct state
+      fetchAgents();
+    }
+  }
+
+  function getKanbanColumns(): AgentColumn[] {
+    return [
+      {
+        id: 'active',
+        title: 'Active',
+        subtitle: 'Drag here to activate agents',
+        agents: agents.filter(a => a.is_active).map(a => ({
+          id: a.id,
+          name: a.name,
+          prompt_text: a.prompt_text,
+          user_id: a.user_id,
+          created_at: a.created_at
+        }))
+      },
+      {
+        id: 'deactivated',
+        title: 'Deactivated',
+        subtitle: 'Drag here to deactivate agents',
+        agents: agents.filter(a => !a.is_active).map(a => ({
+          id: a.id,
+          name: a.name,
+          prompt_text: a.prompt_text,
+          user_id: a.user_id,
+          created_at: a.created_at
+        }))
+      }
+    ];
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -523,15 +593,43 @@ Remember: Your goal is to help customers and represent ${companyName} profession
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-text">My Agents</h1>
-              <p className="text-gray-600 mt-1">Manage your AI voice assistants</p>
+              <p className="text-text-secondary mt-1">Manage your AI voice assistants</p>
             </div>
-            <button
-              onClick={handleNewAgent}
-              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-5 h-5" />
-              <span>New Agent</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <div className="flex items-center gap-1 bg-lighter rounded-lg p-1">
+                <button
+                  onClick={() => setListView('kanban')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
+                    listView === 'kanban' 
+                      ? 'bg-primary text-darker font-medium' 
+                      : 'text-text-secondary hover:text-text'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span className="text-sm">Kanban</span>
+                </button>
+                <button
+                  onClick={() => setListView('grid')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
+                    listView === 'grid' 
+                      ? 'bg-primary text-darker font-medium' 
+                      : 'text-text-secondary hover:text-text'
+                  }`}
+                >
+                  <ListIcon className="w-4 h-4" />
+                  <span className="text-sm">Grid</span>
+                </button>
+              </div>
+              
+              <button
+                onClick={handleNewAgent}
+                className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="w-5 h-5" />
+                <span>New Agent</span>
+              </button>
+            </div>
           </div>
 
           {message && (
@@ -541,10 +639,10 @@ Remember: Your goal is to help customers and represent ${companyName} profession
           )}
 
           {agents.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
-              <Bot className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No agents yet</h3>
-              <p className="text-gray-600 mb-6">Create your first AI voice assistant to start making calls</p>
+            <div className="bg-lighter rounded-lg shadow p-12 text-center border border-border">
+              <Bot className="w-16 h-16 text-text-secondary mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-text mb-2">No agents yet</h3>
+              <p className="text-text-secondary mb-6">Create your first AI voice assistant to start making calls</p>
               <button
                 onClick={handleNewAgent}
                 className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -553,29 +651,49 @@ Remember: Your goal is to help customers and represent ${companyName} profession
                 <span>Create Your First Agent</span>
               </button>
             </div>
+          ) : listView === 'kanban' ? (
+            /* Kanban Board View */
+            <div>
+              <div className="mb-4 p-4 bg-lighter/50 rounded-lg border border-border">
+                <p className="text-sm text-text-secondary">
+                  <span className="font-medium text-text">💡 Tip:</span> Drag agents between columns to activate or deactivate them. 
+                  Active agents can receive calls, while deactivated agents are hidden but not deleted.
+                </p>
+              </div>
+              <AgentKanbanBoard
+                columns={getKanbanColumns()}
+                onAgentMove={handleAgentMove}
+                onAgentEdit={(agentId) => {
+                  const agent = agents.find(a => a.id === agentId);
+                  if (agent) handleEditAgent(agent);
+                }}
+                onAgentDelete={handleDeleteAgent}
+              />
+            </div>
           ) : (
+            /* Grid View */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow p-6 border-2 border-gray-200 hover:border-blue-500"
+                  className="bg-lighter rounded-lg shadow hover:shadow-lg transition-shadow p-6 border-2 border-border hover:border-primary"
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                        <Bot className="w-6 h-6 text-blue-600" />
+                      <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center">
+                        <Bot className="w-6 h-6 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{agent.name}</h3>
-                        <span className={`text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                          {agent.is_active ? 'Active' : 'Inactive'}
+                        <h3 className="text-lg font-semibold text-text">{agent.name}</h3>
+                        <span className={`text-xs px-2 py-1 rounded-full ${agent.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                          {agent.is_active ? 'Active' : 'Deactivated'}
                         </span>
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-2 mb-4">
-                    <p className="text-sm text-gray-600 line-clamp-3">
+                    <p className="text-sm text-text-secondary line-clamp-3">
                       {agent.prompt_text?.substring(0, 150) || 'No description'}...
                     </p>
                   </div>
@@ -590,7 +708,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
                     </button>
                     <button
                       onClick={() => handleDeleteAgent(agent.id)}
-                      className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
+                      className="px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
