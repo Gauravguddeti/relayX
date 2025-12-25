@@ -441,23 +441,26 @@ async def delete_campaign(
     user_id: str = Depends(get_current_user_id),
     db: SupabaseDB = Depends(get_db)
 ):
-    """Delete a campaign (only if draft or completed)"""
+    """Delete a campaign - only the campaign owner can delete their campaign"""
     try:
+        # Verify campaign exists and belongs to user (security check)
         result = db.client.table("bulk_campaigns").select("state").eq("id", campaign_id).eq("user_id", user_id).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Campaign not found")
         
         state = result.data[0]['state']
-        if state in ['running', 'pending']:
+        
+        # Only prevent deletion of actively running campaigns
+        if state == 'running':
             raise HTTPException(status_code=400, detail="Cannot delete running campaign. Pause it first.")
         
-        # Delete (cascade will delete contacts)
-        db.client.table("bulk_campaigns").delete().eq("id", campaign_id).execute()
+        # Delete campaign (cascade will delete contacts)
+        db.client.table("bulk_campaigns").delete().eq("id", campaign_id).eq("user_id", user_id).execute()
         
         logger.info(f"Campaign {campaign_id} deleted by user {user_id}")
         
-        return {"message": "Campaign deleted"}
+        return {"message": "Campaign deleted successfully"}
         
     except HTTPException:
         raise

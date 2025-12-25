@@ -66,6 +66,10 @@ export default function CampaignDetail() {
   const [addContactsLoading, setAddContactsLoading] = useState(false);
   const [addContactsError, setAddContactsError] = useState('');
   const [addContactsSuccess, setAddContactsSuccess] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteSuccess, setDeleteSuccess] = useState('');
 
   useEffect(() => {
     fetchCampaignData();
@@ -150,9 +154,9 @@ export default function CampaignDetail() {
   }
 
   async function handleDeleteCampaign() {
-    if (!confirm('Are you sure you want to permanently delete this campaign? This action cannot be undone and will delete all campaign data and contacts.')) {
-      return;
-    }
+    setDeleteLoading(true);
+    setDeleteError('');
+    setDeleteSuccess('');
 
     try {
       const response = await fetch(`/campaigns/${campaignId}`, {
@@ -162,11 +166,29 @@ export default function CampaignDetail() {
         }
       });
 
-      if (response.ok) {
-        navigate('/dashboard/contacts');
+      if (response.status === 401) {
+        navigate('/login');
+        return;
       }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to delete campaign' }));
+        setDeleteError(errorData.detail || 'Failed to delete campaign');
+        return;
+      }
+
+      const data = await response.json();
+      setDeleteSuccess(data.message || 'Campaign deleted successfully');
+      
+      // Wait 1.5 seconds to show success message, then navigate
+      setTimeout(() => {
+        navigate('/dashboard/contacts');
+      }, 1500);
     } catch (error) {
       console.error('Failed to delete campaign:', error);
+      setDeleteError('Network error: Failed to delete campaign');
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -358,7 +380,7 @@ export default function CampaignDetail() {
             </button>
 
             <button
-              onClick={handleDeleteCampaign}
+              onClick={() => setShowDeleteModal(true)}
               className="flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
               title="Delete campaign permanently"
             >
@@ -640,6 +662,60 @@ export default function CampaignDetail() {
               >
                 <Upload className="w-5 h-5" />
                 <span>{addContactsLoading ? 'Adding...' : 'Add Contacts'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8">
+            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 rounded-full bg-red-100">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+
+            <h3 className="text-2xl font-bold text-gray-900 text-center mb-2">
+              Delete Campaign?
+            </h3>
+            
+            <p className="text-gray-600 text-center mb-6">
+              This action cannot be undone. All campaign data and contacts will be permanently deleted.
+            </p>
+
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-800">{deleteError}</p>
+              </div>
+            )}
+
+            {deleteSuccess && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-2">
+                <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-green-800">{deleteSuccess}</p>
+              </div>
+            )}
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteError('');
+                  setDeleteSuccess('');
+                }}
+                disabled={deleteLoading}
+                className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteCampaign}
+                disabled={deleteLoading || deleteSuccess !== ''}
+                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete Campaign'}
               </button>
             </div>
           </div>

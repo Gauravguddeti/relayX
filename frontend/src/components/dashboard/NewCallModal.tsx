@@ -93,32 +93,22 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
     }
   }
 
-  function loadContacts() {
+  async function loadContacts() {
+    if (!userId) return;
+
     try {
-      // Load from localStorage (relayx_contacts for contacts page, contacts for quick saves)
-      const savedContacts = localStorage.getItem('relayx_contacts');
-      const quickContacts = localStorage.getItem('contacts');
-      
-      let allContacts: Contact[] = [];
-      
-      if (savedContacts) {
-        allContacts = [...allContacts, ...JSON.parse(savedContacts)];
+      // Fetch contacts from backend API
+      const response = await fetch(`/api/contacts?user_id=${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const contactList = data.contacts || data || [];
+        setContacts(contactList);
       }
-      if (quickContacts) {
-        const quick = JSON.parse(quickContacts).map((c: any, i: number) => ({
-          id: `quick-${i}`,
-          name: c.name,
-          phone: c.phone,
-        }));
-        allContacts = [...allContacts, ...quick];
-      }
-      
-      // Remove duplicates by phone
-      const uniqueContacts = allContacts.filter((contact, index, self) =>
-        index === self.findIndex(c => c.phone === contact.phone)
-      );
-      
-      setContacts(uniqueContacts);
     } catch (error) {
       console.error('Failed to load contacts:', error);
     }
@@ -400,7 +390,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   <select
                     value={countryCode}
                     onChange={(e) => setCountryCode(e.target.value)}
-                    className="px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    className="px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
                   >
                     {COUNTRY_CODES.map((country) => (
                       <option key={country.code} value={country.code}>
@@ -414,7 +404,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
                     placeholder="5551234567"
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg text-gray-900 bg-white"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">Enter phone number without country code</p>
@@ -431,7 +421,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   value={contactName}
                   onChange={(e) => setContactName(e.target.value)}
                   placeholder="John Doe"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                 />
               </div>
             </>
@@ -465,7 +455,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   value={selectedAgent}
                   onChange={(e) => setSelectedAgent(e.target.value)}
                   disabled={hasNoBot}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed text-gray-900 bg-white"
                 >
                   {hasNoBot ? (
                     <option value="">No bot configured - Create one first</option>
@@ -527,7 +517,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                     onChange={(e) => setScheduledTime(e.target.value)}
                     min={new Date().toISOString().slice(0, 16)}
                     step="300"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                   />
                 </div>
               )}
@@ -543,7 +533,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Add any context or special instructions for this call..."
                   rows={3}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-900 bg-white"
                 />
               </div>
             </>
