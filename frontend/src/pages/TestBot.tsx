@@ -173,15 +173,15 @@ export default function TestBot() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-text">Test Your Bot</h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-text-secondary mt-1">
             Call yourself to see how your assistant performs
           </p>
         </div>
 
         {/* Info Banner */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-blue-900">
+          <AlertCircle className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-text">
             <p className="font-medium">Safe Testing Environment</p>
             <ul className="mt-2 space-y-1 list-disc list-inside">
               <li>Test calls are clearly marked in your call history</li>
@@ -202,7 +202,7 @@ export default function TestBot() {
                 {contacts.length > 0 && (
                   <button
                     onClick={() => setShowContacts(!showContacts)}
-                    className="flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-700"
+                    className="flex items-center space-x-1 text-sm text-primary hover:text-accent"
                   >
                     <Users className="w-4 h-4" />
                     <span>{showContacts ? 'Hide' : 'Choose from'} Contacts</span>
@@ -221,10 +221,10 @@ export default function TestBot() {
                       }}
                       className="w-full text-left px-4 py-3 hover:bg-blue-50 border-b border-gray-100 last:border-b-0 transition-colors"
                     >
-                      <div className="font-medium text-gray-900">{contact.name}</div>
-                      <div className="text-sm text-gray-600">{contact.phone}</div>
+                      <div className="font-medium text-black">{contact.name}</div>
+                      <div className="text-sm text-text-secondary">{contact.phone}</div>
                       {contact.company && (
-                        <div className="text-xs text-gray-500">{contact.company}</div>
+                        <div className="text-xs text-text-secondary">{contact.company}</div>
                       )}
                     </button>
                   ))}
@@ -257,13 +257,13 @@ export default function TestBot() {
                   />
                 </div>
               </div>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-text-secondary mt-2">
                 Enter the phone number where you want to receive the test call
               </p>
 
               {showSaveContact && !loading && (
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-                  <p className="text-sm font-medium text-blue-900">Save this number as a contact?</p>
+                  <p className="text-sm font-medium text-text">Save this number as a contact?</p>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -319,10 +319,10 @@ export default function TestBot() {
 
         {/* What to Expect */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">What to Expect</h2>
-          <ol className="space-y-3 text-sm text-gray-700">
+          <h2 className="text-lg font-semibold text-black mb-4">What to Expect</h2>
+          <ol className="space-y-3 text-sm text-text-secondary">
             <li className="flex items-start">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 font-medium flex items-center justify-center mr-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-secondary font-medium flex items-center justify-center mr-3">
                 1
               </span>
               <span>
@@ -330,7 +330,7 @@ export default function TestBot() {
               </span>
             </li>
             <li className="flex items-start">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 font-medium flex items-center justify-center mr-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-secondary font-medium flex items-center justify-center mr-3">
                 2
               </span>
               <span>
@@ -338,7 +338,7 @@ export default function TestBot() {
               </span>
             </li>
             <li className="flex items-start">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 font-medium flex items-center justify-center mr-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-secondary font-medium flex items-center justify-center mr-3">
                 3
               </span>
               <span>

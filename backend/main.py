@@ -270,9 +270,9 @@ async def get_dashboard_stats(
 ):
     """Get aggregated dashboard statistics for the current user"""
     try:
-        # Fetch all user's calls with analysis in a single query
+        # Fetch all user's calls in a single query
         response = db.client.table("calls")\
-            .select("id, status, created_at, call_analysis")\
+            .select("id, status, created_at, transcript, sentiment")\
             .eq("user_id", user_id)\
             .order("created_at", desc=True)\
             .limit(100)\
@@ -295,21 +295,24 @@ async def get_dashboard_stats(
                 if call_date >= today:
                     today_calls += 1
             
-            # Process analysis data
-            if call.get("status") == "completed" and call.get("call_analysis"):
-                analysis = call["call_analysis"]
+            # Process sentiment data for completed calls
+            if call.get("status") == "completed":
+                sentiment = call.get("sentiment", "").lower()
                 
-                # Check outcome
-                outcome = analysis.get("outcome", "").lower()
-                if "interested" in outcome and "not" not in outcome:
+                # Estimate interest from sentiment (simple heuristic)
+                if sentiment in ["positive", "very_positive"]:
                     interested_count += 1
-                elif "not interested" in outcome:
+                elif sentiment in ["negative", "very_negative"]:
                     not_interested_count += 1
                 
-                # Add confidence score
-                if analysis.get("confidence_score"):
-                    confidence_sum += float(analysis["confidence_score"])
-                    confidence_count += 1
+                # Calculate confidence score based on transcript length and sentiment
+                if call.get("transcript"):
+                    # Simple confidence: longer transcripts = higher confidence
+                    transcript_length = len(call["transcript"])
+                    confidence = min(1.0, transcript_length / 500)  # Max at 500 chars
+                    if sentiment:
+                        confidence_sum += confidence
+                        confidence_count += 1
         
         return {
             "totalCalls": len(calls),

@@ -70,7 +70,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors font-bold ${
                     isActive
                       ? 'bg-primary text-secondary'
-                      : 'text-text-secondary hover:bg-bg-darker hover:text-text'
+                      : 'text-text hover:bg-bg-darker hover:text-primary'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
