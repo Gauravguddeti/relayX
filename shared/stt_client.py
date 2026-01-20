@@ -1,5 +1,5 @@
 """
-Speech-to-Text using Deepgram, Groq Whisper API or Local Whisper
+Speech-to-Text using Groq Whisper API or Local Whisper
 Converts audio to text
 """
 import numpy as np
@@ -8,44 +8,22 @@ import os
 import tempfile
 from typing import Optional
 from groq import Groq
-import requests
-import time
-import json
 
 
 class STTClient:
-    """Speech-to-Text client supporting Deepgram, Groq Whisper, or Local Whisper"""
+    """Speech-to-Text client using Groq Whisper or Local Whisper"""
     
     def __init__(self, model_name: str = None):
         self.use_cloud = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
-        self.stt_provider = os.getenv("STT_PROVIDER", "groq").lower()  # deepgram, groq, assemblyai, or local
         self.model_name = model_name or os.getenv("WHISPER_MODEL", "base")
         
         if self.use_cloud:
-            if self.stt_provider == "deepgram":
-                # Use Deepgram API - Best for real-time phone calls
-                api_key = os.getenv("DEEPGRAM_API_KEY")
-                if not api_key:
-                    raise ValueError("DEEPGRAM_API_KEY not found in environment")
-                self.deepgram_key = api_key
-                self.deepgram_url = "https://api.deepgram.com/v1/listen"
-                logger.info("Using Deepgram API (cloud) - Best for real-time")
-            elif self.stt_provider == "assemblyai":
-                # Use AssemblyAI API
-                api_key = os.getenv("ASSEMBLYAI_API_KEY")
-                if not api_key:
-                    raise ValueError("ASSEMBLYAI_API_KEY not found in environment")
-                self.assemblyai_key = api_key
-                self.assemblyai_upload_url = "https://api.assemblyai.com/v2/upload"
-                self.assemblyai_transcript_url = "https://api.assemblyai.com/v2/transcript"
-                logger.info("Using AssemblyAI API (cloud)")
-            else:
-                # Use Groq's Whisper API (FREE, fast)
-                api_key = os.getenv("GROQ_API_KEY")
-                if not api_key:
-                    raise ValueError("GROQ_API_KEY not found in environment")
-                self.client = Groq(api_key=api_key)
-                logger.info("Using Groq Whisper API (cloud)")
+            # Use Groq's Whisper API (FREE, fast)
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("GROQ_API_KEY not found in environment")
+            self.client = Groq(api_key=api_key)
+            logger.info("Using Groq Whisper API (cloud)")
         else:
             # Use local Whisper model
             import whisper
@@ -89,116 +67,18 @@ class STTClient:
             
             # Use cloud or local transcription
             if self.use_cloud:
-                if self.stt_provider == "deepgram":
-                    # Deepgram API - Fast and accurate for phone calls
-                    logger.debug(f"Transcribing with Deepgram (in-memory)")
-                    
-                    headers = {
-                        "Authorization": f"Token {self.deepgram_key}",
-                        "Content-Type": "audio/wav"
-                    }
-                    
-                    # Deepgram parameters optimized for fast phone calls
-                    params = {
-                        "model": "nova-2-phonecall",  # Phone-specific model - faster + better for telephony
-                        "language": language,
-                        "smart_format": "true",
-                        "punctuate": "false",  # Skip punctuation for speed
-                        "diarize": "false",
-                        "filler_words": "false",
-                        "profanity_filter": "false",
-                        "encoding": "linear16",  # Match our WAV format
-                        "sample_rate": "16000"  # Match our upsampled rate
-                    }
-                    
-                    # Send audio bytes directly (no file I/O)
-                    response = requests.post(
-                        self.deepgram_url,
-                        headers=headers,
-                        params=params,
-                        data=audio_bytes,
-                        timeout=10
-                    )
-                    
-                    if response.status_code != 200:
-                        logger.error(f"Deepgram error: {response.status_code} - {response.text}")
-                        return None
-                    
-                    result = response.json()
-                    text = ""
-                    try:
-                        text = result["results"]["channels"][0]["alternatives"][0]["transcript"]
-                    except (KeyError, IndexError):
-                        logger.warning(f"No transcript in Deepgram response: {result}")
-                        return None
-                
-                elif self.stt_provider == "assemblyai":
-                    # AssemblyAI API
-                    logger.debug(f"Transcribing with AssemblyAI: {audio_file}")
-                    
-                    # Upload audio file
-                    headers = {"authorization": self.assemblyai_key}
-                    with open(audio_file, "rb") as f:
-                        upload_response = requests.post(
-                            self.assemblyai_upload_url,
-                            headers=headers,
-                            data=f
-                        )
-                    
-                    if upload_response.status_code != 200:
-                        logger.error(f"AssemblyAI upload failed: {upload_response.text}")
-                        return None
-                    
-                    audio_url = upload_response.json()["upload_url"]
-                    
-                    # Request transcription
-                    transcript_request = {
-                        "audio_url": audio_url,
-                        "language_code": language
-                    }
-                    transcript_response = requests.post(
-                        self.assemblyai_transcript_url,
-                        json=transcript_request,
-                        headers=headers
-                    )
-                    
-                    if transcript_response.status_code != 200:
-                        logger.error(f"AssemblyAI transcription request failed: {transcript_response.text}")
-                        return None
-                    
-                    transcript_id = transcript_response.json()["id"]
-                    
-                    # Poll for result
-                    polling_url = f"{self.assemblyai_transcript_url}/{transcript_id}"
-                    max_retries = 60
-                    for _ in range(max_retries):
-                        polling_response = requests.get(polling_url, headers=headers)
-                        result = polling_response.json()
-                        
-                        if result["status"] == "completed":
-                            text = result["text"].strip()
-                            break
-                        elif result["status"] == "error":
-                            logger.error(f"AssemblyAI transcription error: {result.get('error')}")
-                            return None
-                        
-                        time.sleep(0.5)
-                    else:
-                        logger.error("AssemblyAI transcription timeout")
-                        return None
-                else:
-                    # Groq Whisper API (IN-MEMORY)
-                    logger.debug(f"Transcribing with Groq API (in-memory)")
-                    # Send audio bytes directly without file
-                    # CRITICAL: Detailed prompt helps Whisper with phone call audio quality
-                    transcription = self.client.audio.transcriptions.create(
-                        file=("audio.wav", audio_bytes),
-                        model="whisper-large-v3",
-                        language=language,
-                        response_format="text",
-                        prompt="Phone call. Common: what's up, hello, yes, yeah, no, okay, I'm down, sounds good, four to five, bye. Numbers like '4-5' mean small amounts."
-                    )
-                    text = transcription.strip() if isinstance(transcription, str) else ""
+                # Groq Whisper API (IN-MEMORY)
+                logger.debug(f"Transcribing with Groq API (in-memory)")
+                # Send audio bytes directly without file
+                # CRITICAL: Detailed prompt helps Whisper with phone call audio quality
+                transcription = self.client.audio.transcriptions.create(
+                    file=("audio.wav", audio_bytes),
+                    model="whisper-large-v3",
+                    language=language,
+                    response_format="text",
+                    prompt="Phone call. Common: what's up, hello, yes, yeah, no, okay, I'm down, sounds good, four to five, bye. Numbers like '4-5' mean small amounts."
+                )
+                text = transcription.strip() if isinstance(transcription, str) else ""
             else:
                 # Local Whisper (needs temp file fallback)
                 if audio_bytes and not audio_file:
