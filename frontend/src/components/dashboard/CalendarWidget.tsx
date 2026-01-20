@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, ExternalLink, Mail, Phone, User, Loader, Video } from 'lucide-react';
+import { Calendar, Clock, ExternalLink, User, Loader, Video } from 'lucide-react';
 
 interface CalBooking {
   id: number;
@@ -47,35 +47,6 @@ export default function CalendarWidget() {
     } catch (error) {
       console.error('Failed to fetch bookings:', error);
     }
-  }
-
-  function formatEventTime(start: string, end: string): string {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const eventDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    
-    let dateStr;
-    if (eventDate.getTime() === today.getTime()) {
-      dateStr = 'Today';
-    } else if (eventDate.getTime() === today.getTime() + 86400000) {
-      dateStr = 'Tomorrow';
-    } else {
-      dateStr = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-
-    const timeStr = `${startDate.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    })} - ${endDate.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    })}`;
-
-    return `${dateStr} at ${timeStr}`;
   }
 
   if (loading) {
@@ -174,13 +145,12 @@ export default function CalendarWidget() {
               {bookings.slice(0, 5).map((booking: CalBooking) => {
                 const startDate = new Date(booking.startTime);
                 const isToday = startDate.toDateString() === new Date().toDateString();
-                
+
                 return (
                   <div
                     key={booking.id}
-                    className={`p-3 border rounded-lg ${
-                      isToday ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50'
-                    }`}
+                    className={`p-3 border rounded-lg ${isToday ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50'
+                      }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">

@@ -53,7 +53,7 @@ export default function CalIntegration() {
       const response = await fetch('/cal/status');
       const data = await response.json();
       setStatus(data);
-      
+
       // Auto-select first event type
       if (data.event_types && data.event_types.length > 0) {
         const firstEvent = data.event_types[0];
@@ -147,7 +147,7 @@ export default function CalIntegration() {
       if (!phoneNumber.startsWith('+')) {
         phoneNumber = '+' + phoneNumber;
       }
-      
+
       const response = await fetch('/cal/send-link-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,10 +164,10 @@ export default function CalIntegration() {
       }
 
       setSuccess('Booking link sent via SMS!');
-      setFormData({ 
-        name: '', 
-        email: '', 
-        phone: '', 
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
         notes: '',
         eventTypeId: formData.eventTypeId,
         eventTypeSlug: formData.eventTypeSlug,
@@ -293,7 +293,7 @@ export default function CalIntegration() {
                     });
                   }
                 }}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
               >
                 {status.event_types.map((et) => (
                   <option key={et.id} value={et.id}>
@@ -312,7 +312,7 @@ export default function CalIntegration() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                   placeholder="John Doe"
                 />
               </div>
@@ -325,7 +325,7 @@ export default function CalIntegration() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                   placeholder="john@example.com"
                 />
               </div>
@@ -338,7 +338,7 @@ export default function CalIntegration() {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                   placeholder="+1234567890"
                 />
               </div>
@@ -351,7 +351,7 @@ export default function CalIntegration() {
                   type="text"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                   placeholder="Demo request"
                 />
               </div>

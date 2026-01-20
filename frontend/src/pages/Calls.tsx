@@ -88,9 +88,9 @@ export default function Calls() {
 
   const filteredCalls = calls
     .filter((call) => filter === 'all' || call.status === filter)
-    .filter((call) => 
-      searchTerm === '' || 
-      call.to_number.includes(searchTerm) || 
+    .filter((call) =>
+      searchTerm === '' ||
+      call.to_number.includes(searchTerm) ||
       call.id.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -130,7 +130,7 @@ export default function Calls() {
               placeholder="Search by phone number or call ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
             />
           </div>
           <div className="flex items-center space-x-2">
@@ -138,7 +138,7 @@ export default function Calls() {
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
             >
               <option value="all">All Calls</option>
               <option value="completed">Completed</option>

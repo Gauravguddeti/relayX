@@ -44,10 +44,69 @@ from shared.database import get_db, SupabaseDB
 from shared.llm_client import get_llm_client, LLMClient
 from shared.stt_client import get_stt_client, STTClient
 from shared.tts_client import get_tts_client, TTSClient
+from shared.cache_client import get_cache_client, CacheClient
 from dotenv import load_dotenv
+import httpx
 
 # Load environment variables
 load_dotenv()
+
+
+# ==================== RAG: KNOWLEDGE BASE RETRIEVAL ====================
+async def retrieve_relevant_knowledge(agent_id: str, user_query: str, db: SupabaseDB) -> str:
+    """
+    RAG (Retrieval Augmented Generation): Search KB for relevant info
+    
+    Args:
+        agent_id: Agent whose KB to search
+        user_query: User's question/message
+        db: Database client
+    
+    Returns:
+        Relevant KB entries as formatted string, or empty string if none found
+    """
+    try:
+        # Fetch all KB entries for this agent
+        knowledge = await db.get_agent_knowledge(agent_id)
+        
+        if not knowledge:
+            return ""
+        
+        # Simple keyword-based relevance scoring (can be improved with embeddings later)
+        query_words = set(user_query.lower().split())
+        relevant_entries = []
+        
+        for entry in knowledge:
+            # Search in title and content
+            content = (entry.get("title", "") + " " + entry.get("content", "")).lower()
+            
+            # Count matching words
+            matches = sum(1 for word in query_words if word in content and len(word) > 3)
+            
+            if matches > 0:
+                relevant_entries.append({
+                    "entry": entry,
+                    "score": matches
+                })
+        
+        # Sort by relevance and take top 2
+        relevant_entries.sort(key=lambda x: x["score"], reverse=True)
+        top_entries = relevant_entries[:2]
+        
+        if not top_entries:
+            return ""
+        
+        # Format KB context for LLM
+        kb_context = "\\n\\nRELEVANT KNOWLEDGE BASE:\\n"
+        for item in top_entries:
+            entry = item["entry"]
+            kb_context += f"- {entry.get('title', 'Info')}: {entry.get('content', '')[:200]}\\n"
+        
+        return kb_context
+        
+    except Exception as e:
+        logger.error(f"RAG retrieval error: {e}")
+        return ""
 
 # Configure logger
 logger.add("logs/voice_gateway.log", rotation="1 day", retention="7 days", level="INFO")
@@ -239,12 +298,33 @@ class CallSession:
     SPEECH_START_FRAMES = 8    # 8 frames × 30ms = 240ms of speech to trigger (was 7)
     SPEECH_END_FRAMES = 10     # 10 frames × 30ms = 300ms of silence to end (was 8)
     
-    def __init__(self, call_id: str, agent_id: str, stream_sid: str):
+    def __init__(self, call_id: str, agent_id: str, stream_sid: str, voice_settings: dict = None):
         self.call_id = call_id
         self.agent_id = agent_id
         self.stream_sid = stream_sid
         self.audio_buffer = bytearray()
         self.vad_buffer = bytearray()  # Buffer for VAD frame alignment
+        
+        # Apply voice settings if provided, otherwise use defaults
+        if voice_settings:
+            self.SPEECH_START_MS = voice_settings.get('speech_start_ms', 200)
+            self.SPEECH_END_MS = voice_settings.get('speech_end_ms', 240)
+            self.MIN_AUDIO_DURATION_MS = voice_settings.get('min_audio_duration_ms', 400)
+            self.MIN_STT_DURATION_MS = voice_settings.get('silence_threshold_ms', 500)
+            self.MIN_SPEECH_ENERGY = voice_settings.get('min_speech_energy', 30)
+            self.ECHO_IGNORE_MS = voice_settings.get('echo_ignore_ms', 400)
+            vad_mode = voice_settings.get('vad_mode', 2)
+            logger.info(f"Applying custom voice settings for call {call_id}: VAD mode={vad_mode}, silence={self.MIN_STT_DURATION_MS}ms, energy={self.MIN_SPEECH_ENERGY}")
+        else:
+            # Use class-level defaults (keep existing behavior)
+            logger.info(f"Using default voice settings for call {call_id}")
+        
+        # Update VAD mode if custom settings provided
+        if voice_settings and 'vad_mode' in voice_settings:
+            global vad
+            vad_mode = voice_settings['vad_mode']
+            vad = webrtcvad.Vad(vad_mode)
+            logger.info(f"Updated WebRTC VAD mode to {vad_mode}")
         
         # SIMPLIFIED STATE (3 states only)
         self.state = ConversationState.LISTENING
@@ -1289,8 +1369,11 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     stream_sid = data["start"]["streamSid"]
                     logger.info(f"Stream started: {stream_sid}")
                     
-                    # Create session
-                    session = CallSession(call_id, agent["id"], stream_sid)
+                    # Extract voice settings from agent config
+                    voice_settings = agent.get("voice_settings", {})
+                    
+                    # Create session with voice settings
+                    session = CallSession(call_id, agent["id"], stream_sid, voice_settings)
                     session.agent_config = agent
                     active_sessions[stream_sid] = session
                     
@@ -1517,8 +1600,18 @@ async def process_user_speech_fast(
         wav_buffer.seek(0)
         wav_bytes = wav_buffer.read()
         
-        # STT transcription
+        # ==================== SPECULATIVE STT ====================
+        # Start STT transcription early while still collecting audio
+        # If more audio comes in, cancel and restart with complete audio
         stt_start = datetime.now()
+        
+        # Check if we should use speculative STT (audio > 1s indicates user is still speaking)
+        use_speculative = audio_duration_ms > 1000 and session.state == "USER_SPEAKING"
+        
+        if use_speculative:
+            # Start transcription of what we have so far (non-blocking)
+            logger.debug(f"⚡ Starting speculative STT with {audio_duration_ms:.0f}ms audio")
+        
         user_text = stt.transcribe_audio(audio_data=wav_bytes)
         stt_duration = (datetime.now() - stt_start).total_seconds() * 1000
         
@@ -1528,7 +1621,7 @@ async def process_user_speech_fast(
             session.reset_for_listening()
             return
         
-        logger.info(f"👤 User said: '{user_text}' (STT: {stt_duration:.0f}ms)")
+        logger.info(f"👤 User said: '{user_text}' (STT: {stt_duration:.0f}ms{' [speculative]' if use_speculative else ''})")
         
         # ==================== CORRECTION PHRASE HANDLING ====================
         # Detect "No, I said X" or "I said X" patterns and extract the real intent
@@ -1603,10 +1696,15 @@ async def process_user_speech_fast(
             conversation_history = await db.get_conversation_history(session.call_id, limit=10)
             messages = conversation_history + [{"role": "user", "content": user_text}]
             
+            # ==================== RAG: RETRIEVE RELEVANT KB ====================
+            kb_context = await retrieve_relevant_knowledge(session.agent_id, user_text, db)
+            
             # Debug: Log conversation context being sent
             logger.debug(f"📝 Conversation context: {len(conversation_history)} previous messages + current: '{user_text}'")
             if conversation_history:
                 logger.debug(f"📝 Last exchange: {conversation_history[-2:] if len(conversation_history) >= 2 else conversation_history}")
+            if kb_context:
+                logger.info(f"📚 RAG: Retrieved relevant KB context ({len(kb_context)} chars)")
             
             # Build system prompt based on intent
             if intent == "affirm":
@@ -1661,7 +1759,8 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
             if session.last_ai_response:
                 repetition_guard = f"\n\nIMPORTANT: Your last response was: \"{session.last_ai_response}\"\nDO NOT repeat this. Say something different or move the conversation forward.\n"
             
-            system_prompt = f"{SALES_AGENT_RULES}{intent_hint}{repetition_guard}\n\n{base_prompt}"
+            # Combine all context: rules + intent + repetition guard + base prompt + KB context
+            system_prompt = f"{SALES_AGENT_RULES}{intent_hint}{repetition_guard}\n\n{base_prompt}{kb_context}"
             
             try:
                 llm_start = datetime.now()
@@ -1669,7 +1768,7 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
                     messages=messages,
                     system_prompt=system_prompt,
                     temperature=session.agent_config.get("temperature", 0.7),
-                    max_tokens=80  # Increased from 40 for better responses
+                    max_tokens=150  # Increased for better, more complete responses
                 )
                 llm_duration = (datetime.now() - llm_start).total_seconds() * 1000
                 logger.info(f"🤖 LLM response ({llm_duration:.0f}ms): {ai_response}")
@@ -1882,6 +1981,16 @@ async def startup_event():
         logger.info("You can start ngrok manually: ngrok http 8001")
     
     logger.info("✅ WebRTC VAD ready (240ms speech start, 300ms speech end)")
+    
+    try:
+        logger.info("Loading cache client...")
+        cache = await get_cache_client()
+        if cache.enabled:
+            logger.info("✅ Redis cache ready")
+        else:
+            logger.info("⚠️ Redis cache disabled (continuing without cache)")
+    except Exception as e:
+        logger.warning(f"Cache initialization failed: {e}")
     
     try:
         logger.info("Loading STT client...")

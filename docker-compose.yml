@@ -33,6 +33,7 @@ services:
       - STT_PROVIDER=${STT_PROVIDER}
       - USE_CLOUD_TTS=${USE_CLOUD_TTS}
       - USE_CLOUD_LLM=${USE_CLOUD_LLM}
+      - REDIS_URL=redis://redis:6379
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
       - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
@@ -70,6 +71,7 @@ services:
       - STT_PROVIDER=${STT_PROVIDER}
       - USE_CLOUD_TTS=${USE_CLOUD_TTS}
       - USE_CLOUD_LLM=${USE_CLOUD_LLM}
+      - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
@@ -79,6 +81,18 @@ services:
       - ./logs:/app/logs
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: relayx-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
     restart: unless-stopped
     networks:
       - relayx-network
@@ -96,6 +110,9 @@ services:
     restart: unless-stopped
     networks:
       - relayx-network
+
+volumes:
+  redis-data:
 
 networks:
   relayx-network:

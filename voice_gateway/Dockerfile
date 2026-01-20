@@ -10,14 +10,14 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
+# Copy requirements from voice_gateway directory
+COPY voice_gateway/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy voice gateway code
-COPY . .
+COPY voice_gateway /app
 
 # Copy shared modules
 COPY ../shared /app/shared

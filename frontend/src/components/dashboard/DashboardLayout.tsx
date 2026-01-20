@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Phone, Settings, BookOpen, TestTube, Users, LogOut, Calendar } from 'lucide-react';
+import { Home, Phone, Settings, BookOpen, TestTube, Users, LogOut, Calendar, BarChart3, CreditCard } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface DashboardLayoutProps {
@@ -14,6 +14,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: Home },
+    { name: 'Analytics', path: '/dashboard/analytics', icon: BarChart3 },
     { name: 'Calls', path: '/dashboard/calls', icon: Phone },
     { name: 'Campaigns', path: '/dashboard/campaigns', icon: Users },
     { name: 'Contacts', path: '/dashboard/contacts', icon: Users },
@@ -21,6 +22,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { name: 'Knowledge Base', path: '/dashboard/knowledge', icon: BookOpen },
     { name: 'Test Agent', path: '/dashboard/test', icon: TestTube },
     { name: 'Cal.com', path: '/dashboard/cal', icon: Calendar },
+    { name: 'Billing', path: '/dashboard/billing', icon: CreditCard },
   ];
 
   const handleLogout = () => {
@@ -67,11 +69,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors font-bold ${
-                    isActive
-                      ? 'bg-primary text-secondary'
-                      : 'text-text hover:bg-bg-darker hover:text-primary'
-                  }`}
+                  className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors font-bold ${isActive
+                    ? 'bg-primary text-secondary'
+                    : 'text-text hover:bg-bg-darker hover:text-primary'
+                    }`}
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.name}</span>

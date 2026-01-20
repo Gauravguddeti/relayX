@@ -1,4 +1,8 @@
+import os
+from dotenv import load_dotenv
 from shared.database import SupabaseDB
+
+load_dotenv()
 
 db = SupabaseDB()
 result = db.client.table('users').select('*').execute()

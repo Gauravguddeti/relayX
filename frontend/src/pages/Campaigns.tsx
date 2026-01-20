@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Play, Pause, Calendar, Settings as SettingsIcon, Trash2, Clock, Users as UsersIcon, CheckCircle, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
+import { Plus, Play, Pause, Calendar, Trash2, Clock, Users as UsersIcon, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import CampaignCreateModal from '../components/CampaignCreateModal';

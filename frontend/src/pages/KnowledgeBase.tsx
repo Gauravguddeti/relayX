@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Link as LinkIcon, Trash2, FileText, ExternalLink, Plus } from 'lucide-react';
+import { Upload, Link as LinkIcon, Trash2, FileText, ExternalLink } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 interface KnowledgeItem {
@@ -15,7 +15,7 @@ export default function KnowledgeBase() {
   const [knowledge, setKnowledge] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [agentId, setAgentId] = useState<string>('');
-  
+
   // URL input state
   const [showUrlForm, setShowUrlForm] = useState(false);
   const [url, setUrl] = useState('');
@@ -118,7 +118,7 @@ export default function KnowledgeBase() {
 
       // Refresh knowledge list
       await fetchKnowledge(agentId);
-      
+
       // Reset file input
       event.target.value = '';
     } catch (error) {
@@ -149,10 +149,10 @@ export default function KnowledgeBase() {
 
   function formatDate(dateString: string) {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
   }
 
@@ -181,7 +181,7 @@ export default function KnowledgeBase() {
         {/* Add Knowledge Buttons */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Knowledge</h2>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Add URL */}
             <button
@@ -220,7 +220,7 @@ export default function KnowledgeBase() {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://example.com/about-us"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
                 />
                 <button
                   onClick={handleAddUrl}

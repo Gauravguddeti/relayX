@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Pause, Download, Phone, CheckCircle, XCircle, Clock, User, Globe, Calendar, Edit2, Check, X, Trash2, Upload, UserPlus } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Download, Phone, CheckCircle, Clock, User, Globe, Calendar, Edit2, Check, X, Trash2, Upload, UserPlus, AlertCircle } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
-import { useAuth } from '../contexts/AuthContext';
+
 
 interface Campaign {
   id: string;
@@ -53,7 +53,7 @@ const outcomeLabels: any = {
 export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
-  const { userId } = useAuth();
+
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +179,7 @@ export default function CampaignDetail() {
 
       const data = await response.json();
       setDeleteSuccess(data.message || 'Campaign deleted successfully');
-      
+
       // Wait 1.5 seconds to show success message, then navigate
       setTimeout(() => {
         navigate('/dashboard/contacts');
@@ -220,7 +220,7 @@ export default function CampaignDetail() {
       setAddContactsSuccess(`Added ${data.added_count} new contacts. ${data.skipped_duplicates > 0 ? `Skipped ${data.skipped_duplicates} duplicates.` : ''}`);
       setUploadFile(null);
       await fetchCampaignData();
-      
+
       // Close modal after 2 seconds
       setTimeout(() => {
         setShowAddContactsModal(false);
@@ -296,7 +296,7 @@ export default function CampaignDetail() {
                       if (e.key === 'Enter') handleRename();
                       if (e.key === 'Escape') setIsEditingName(false);
                     }}
-                    className="text-3xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none px-2 bg-transparent"
+                    className="text-3xl font-bold text-text border-b-2 border-primary focus:outline-none px-2 bg-transparent"
                     autoFocus
                   />
                   <button
@@ -314,7 +314,7 @@ export default function CampaignDetail() {
                 </div>
               ) : (
                 <div className="flex items-center space-x-2 group">
-                  <h1 className="text-3xl font-bold text-gray-900">{campaign.name}</h1>
+                  <h1 className="text-3xl font-bold text-text">{campaign.name}</h1>
                   <button
                     onClick={() => {
                       setEditedName(campaign.name);
@@ -431,24 +431,22 @@ export default function CampaignDetail() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold text-gray-900">Campaign Progress</h3>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              campaign.state === 'running' ? 'bg-blue-100 text-blue-800' :
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${campaign.state === 'running' ? 'bg-blue-100 text-blue-800' :
               campaign.state === 'paused' ? 'bg-orange-100 text-orange-800' :
-              campaign.state === 'completed' ? 'bg-green-100 text-green-800' :
-              campaign.state === 'failed' ? 'bg-red-100 text-red-800' :
-              'bg-gray-100 text-gray-800'
-            }`}>
+                campaign.state === 'completed' ? 'bg-green-100 text-green-800' :
+                  campaign.state === 'failed' ? 'bg-red-100 text-red-800' :
+                    'bg-gray-100 text-gray-800'
+              }`}>
               {campaign.state.charAt(0).toUpperCase() + campaign.state.slice(1)}
             </span>
           </div>
-          
+
           <div className="w-full bg-gray-200 rounded-full h-4">
             <div
-              className={`h-4 rounded-full transition-all ${
-                campaign.state === 'running' ? 'bg-blue-600' :
+              className={`h-4 rounded-full transition-all ${campaign.state === 'running' ? 'bg-blue-600' :
                 campaign.state === 'completed' ? 'bg-green-600' :
-                'bg-gray-400'
-              }`}
+                  'bg-gray-400'
+                }`}
               style={{
                 width: `${((campaign.stats.completed + campaign.stats.failed) / campaign.stats.total) * 100}%`
               }}
@@ -466,46 +464,42 @@ export default function CampaignDetail() {
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-gray-900">Contacts</h2>
-              
+
               {/* Filter Buttons */}
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setFilterState('all')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    filterState === 'all'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filterState === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   All ({contacts.length})
                 </button>
                 <button
                   onClick={() => setFilterState('pending')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    filterState === 'pending'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filterState === 'pending'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   Pending ({contacts.filter(c => c.state === 'pending').length})
                 </button>
                 <button
                   onClick={() => setFilterState('completed')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    filterState === 'completed'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filterState === 'completed'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   Completed ({contacts.filter(c => c.state === 'completed').length})
                 </button>
                 <button
                   onClick={() => setFilterState('failed')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    filterState === 'failed'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filterState === 'failed'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   Failed ({contacts.filter(c => c.state === 'failed').length})
                 </button>
@@ -564,9 +558,8 @@ export default function CampaignDetail() {
                         <div className="text-sm text-gray-900">{contact.phone}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          stateColors[contact.state as keyof typeof stateColors] || 'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${stateColors[contact.state as keyof typeof stateColors] || 'bg-gray-100 text-gray-800'
+                          }`}>
                           {contact.state}
                         </span>
                       </td>
@@ -679,7 +672,7 @@ export default function CampaignDetail() {
             <h3 className="text-2xl font-bold text-gray-900 text-center mb-2">
               Delete Campaign?
             </h3>
-            
+
             <p className="text-gray-600 text-center mb-6">
               This action cannot be undone. All campaign data and contacts will be permanently deleted.
             </p>

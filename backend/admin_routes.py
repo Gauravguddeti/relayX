@@ -1,18 +1,29 @@
 """
 Admin routes for multi-client management, analytics, and operations
 """
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 from shared.database import SupabaseDB, get_db
+from admin_auth import (
+    verify_admin_token, 
+    verify_password_double, 
+    create_admin_session, 
+    ADMIN_USERNAME, 
+    ADMIN_PASSWORD_HASH
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 # ==================== MODELS ====================
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 class ClientCard(BaseModel):
     """Client profile card data"""
@@ -76,13 +87,43 @@ class AuditLog(BaseModel):
     ip_address: Optional[str]
 
 
+# ==================== AUTHENTICATION ====================
+
+@router.post("/login")
+async def admin_login(credentials: LoginRequest):
+    """Admin login endpoint"""
+    if credentials.username != ADMIN_USERNAME:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not verify_password_double(credentials.password, ADMIN_PASSWORD_HASH):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_admin_session(credentials.username)
+    return {"token": token, "username": credentials.username}
+
+
+@router.get("/verify")
+async def verify_session(session: dict = Depends(verify_admin_token)):
+    """Verify active session"""
+    return {"success": True, "username": session["username"]}
+
+
+@router.post("/logout")
+async def admin_logout(session: dict = Depends(verify_admin_token)):
+    """Logout endpoint"""
+    # In a full implementation, we would blacklist the token
+    # For in-memory sessions, we just depend on client clearing it
+    return {"success": True}
+
+
 # ==================== CLIENT MANAGEMENT ====================
 
 @router.get("/clients", response_model=List[ClientCard])
 async def list_clients(
     is_active: Optional[bool] = None,
     search: Optional[str] = None,
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """List all clients with summary stats"""
     try:
@@ -141,7 +182,8 @@ async def list_clients(
 @router.get("/clients/{client_id}", response_model=ClientDetail)
 async def get_client_detail(
     client_id: str,
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Get detailed client information"""
     try:
@@ -216,11 +258,87 @@ async def get_client_detail(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/agents", response_model=List[Dict[str, Any]])
+async def list_all_agents(
+    user_id: Optional[str] = None,
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
+):
+    """List all agents (admin view)"""
+    try:
+        query = db.client.table("agents").select("*")
+        if user_id:
+            query = query.eq("user_id", user_id)
+        
+        result = query.execute()
+        agents = result.data or []
+        
+        # Enrich with user info
+        if agents:
+            user_ids = list(set(a.get("user_id") for a in agents if a.get("user_id")))
+            if user_ids:
+                users_result = db.client.table("users").select("id,name,email,company").in_("id", user_ids).execute()
+                users_map = {u["id"]: u for u in (users_result.data or [])}
+                
+                for agent in agents:
+                    uid = agent.get("user_id")
+                    if uid and uid in users_map:
+                        agent["user_name"] = users_map[uid].get("name")
+                        agent["user_email"] = users_map[uid].get("email")
+                        agent["user_company"] = users_map[uid].get("company")
+        
+        return agents
+        
+    except Exception as e:
+        logger.error(f"Error listing admin agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calls", response_model=List[Dict[str, Any]])
+async def list_all_calls(
+    limit: int = 50,
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
+):
+    """List all calls (admin view)"""
+    try:
+        # Fetch calls with user info joined (simulated join)
+        calls_result = db.client.table("calls").select("*").order("created_at", desc=True).limit(limit).execute()
+        calls = calls_result.data or []
+        
+        if calls:
+             # Enrich with user info
+            user_ids = list(set(c.get("user_id") for c in calls if c.get("user_id")))
+            agent_ids = list(set(c.get("agent_id") for c in calls if c.get("agent_id")))
+            
+            users_map = {}
+            if user_ids:
+                users_result = db.client.table("users").select("id,name").in_("id", user_ids).execute()
+                users_map = {u["id"]: u for u in (users_result.data or [])}
+            
+            agents_map = {}
+            if agent_ids:
+                agents_result = db.client.table("agents").select("id,name").in_("id", agent_ids).execute()
+                agents_map = {a["id"]: a for a in (agents_result.data or [])}
+
+            for call in calls:
+                if call.get("user_id") in users_map:
+                    call["user_name"] = users_map[call["user_id"]].get("name")
+                if call.get("agent_id") in agents_map:
+                    call["agent_name"] = agents_map[call["agent_id"]].get("name")
+                    
+        return calls
+    except Exception as e:
+        logger.error(f"Error listing admin calls: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/clients/{client_id}/status")
 async def update_client_status(
     client_id: str,
     is_active: bool,
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Activate or suspend client account"""
     try:
@@ -237,19 +355,35 @@ async def update_client_status(
 @router.get("/analytics", response_model=Analytics)
 async def get_analytics(
     days: int = Query(default=7, ge=1, le=90),
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Get system-wide analytics"""
     try:
-        # Get all data
-        users_result = db.client.table("users").select("id,email,name,company").execute()
-        users = users_result.data or []
-        
-        agents_result = db.client.table("agents").select("id,user_id,is_active").execute()
-        agents = agents_result.data or []
-        
-        calls_result = db.client.table("calls").select("*").execute()
-        calls = calls_result.data or []
+        # Get all data with retry logic for SSL errors
+        try:
+            users_result = db.client.table("users").select("id,email,name,company").execute()
+            users = users_result.data or []
+            
+            agents_result = db.client.table("agents").select("id,user_id,is_active").execute()
+            agents = agents_result.data or []
+            
+            calls_result = db.client.table("calls").select("*").execute()
+            calls = calls_result.data or []
+        except Exception as db_error:
+            # If SSL error, retry once
+            if "SSL" in str(db_error) or "EOF" in str(db_error):
+                logger.warning(f"Retrying after SSL error: {db_error}")
+                import time
+                time.sleep(0.5)
+                users_result = db.client.table("users").select("id,email,name,company").execute()
+                users = users_result.data or []
+                agents_result = db.client.table("agents").select("id,user_id,is_active").execute()
+                agents = agents_result.data or []
+                calls_result = db.client.table("calls").select("*").execute()
+                calls = calls_result.data or []
+            else:
+                raise
         
         # Filter calls by date range
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
@@ -333,7 +467,8 @@ async def get_analytics(
 async def bulk_delete_old_calls(
     days_old: int = Query(default=90, ge=30, le=365),
     client_id: Optional[str] = None,
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Delete calls older than specified days"""
     try:
@@ -366,7 +501,8 @@ async def bulk_delete_old_calls(
 async def bulk_export_data(
     client_id: Optional[str] = None,
     data_type: str = Query(default="calls", regex="^(calls|agents|all)$"),
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Export client data as JSON"""
     try:
@@ -404,7 +540,8 @@ async def bulk_export_data(
 async def get_audit_logs(
     client_id: Optional[str] = None,
     limit: int = Query(default=100, le=500),
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Get audit trail logs"""
     try:
@@ -450,7 +587,8 @@ async def get_audit_logs(
 async def get_login_history(
     client_id: Optional[str] = None,
     limit: int = Query(default=50, le=200),
-    db: SupabaseDB = Depends(get_db)
+    db: SupabaseDB = Depends(get_db),
+    admin: dict = Depends(verify_admin_token)
 ):
     """Get login history (placeholder for future implementation)"""
     # This would require adding a login_logs table

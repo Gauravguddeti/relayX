@@ -54,7 +54,6 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
   const [contactSaved, setContactSaved] = useState(false);
   const [showContactDropdown, setShowContactDropdown] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [inputMode, setInputMode] = useState<'manual' | 'contact'>('manual');
 
   useEffect(() => {
     if (isOpen && userId) {
@@ -66,7 +65,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
       setShowSaveContact(false);
       setContactSaved(false);
       setSelectedContact(null);
-      setInputMode('manual');
+
     }
   }, [isOpen, userId]);
 
@@ -117,11 +116,11 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
   function selectContact(contact: Contact) {
     setSelectedContact(contact);
     setContactName(contact.name);
-    
+
     // Parse phone number - extract country code if present
     let phone = contact.phone;
     let foundCode = '+1';
-    
+
     for (const cc of COUNTRY_CODES) {
       if (phone.startsWith(cc.code)) {
         foundCode = cc.code;
@@ -129,11 +128,11 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
         break;
       }
     }
-    
+
     setCountryCode(foundCode);
     setPhoneNumber(phone.replace(/\D/g, ''));
     setShowContactDropdown(false);
-    setInputMode('contact');
+
   }
 
   function clearContactSelection() {
@@ -141,7 +140,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
     setContactName('');
     setPhoneNumber('');
     setCountryCode('+1');
-    setInputMode('manual');
+
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -184,7 +183,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
 
       const response = await fetch('/calls/outbound', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
         },
@@ -198,23 +197,23 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
 
       // Success!
       setCallSuccess(true);
-      
+
       // Only show save contact if it's a new number (not from contacts)
       if (!selectedContact) {
         setShowSaveContact(true);
         setSaveContactName(contactName || '');
       }
-      
+
       // Reset form for next call
       setPhoneNumber('');
       setContactName('');
       setNotes('');
       setScheduledTime('');
       setSelectedContact(null);
-      setInputMode('manual');
-      
+
+
       if (onSuccess) onSuccess();
-      
+
       // Auto-close after delay
       setTimeout(() => {
         if (!showSaveContact || contactSaved) {
@@ -236,24 +235,24 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
 
     // Save to relayx_contacts (main contacts storage)
     const existingContacts = JSON.parse(localStorage.getItem('relayx_contacts') || '[]');
-    
+
     // Check if phone already exists
     const exists = existingContacts.some((c: Contact) => c.phone === lastCalledNumber);
     if (exists) {
       setError('Contact with this phone number already exists');
       return;
     }
-    
+
     existingContacts.push({
       id: Date.now().toString(),
       name: saveContactName,
       phone: lastCalledNumber,
       created_at: new Date().toISOString(),
     });
-    
+
     localStorage.setItem('relayx_contacts', JSON.stringify(existingContacts));
     setContactSaved(true);
-    
+
     setTimeout(() => {
       onClose();
       // Reset states
@@ -321,7 +320,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                 <Users className="w-4 h-4 inline mr-2" />
                 Quick Select from Contacts
               </label>
-              
+
               {selectedContact ? (
                 <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center space-x-3">
@@ -351,7 +350,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                     <span className="text-gray-500">Select a contact or enter manually below</span>
                     <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showContactDropdown ? 'rotate-180' : ''}`} />
                   </button>
-                  
+
                   {showContactDropdown && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {contacts.map((contact) => (
@@ -479,11 +478,10 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   <button
                     type="button"
                     onClick={() => setCallType('immediate')}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
-                      callType === 'immediate'
-                        ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                        : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                    }`}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${callType === 'immediate'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                      : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                      }`}
                   >
                     <Phone className="w-5 h-5 inline mr-2" />
                     Call Now
@@ -491,11 +489,10 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   <button
                     type="button"
                     onClick={() => setCallType('scheduled')}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
-                      callType === 'scheduled'
-                        ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                        : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                    }`}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${callType === 'scheduled'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                      : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                      }`}
                   >
                     <Calendar className="w-5 h-5 inline mr-2" />
                     Schedule
@@ -548,7 +545,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   <span className="text-green-800 font-semibold">Call initiated successfully!</span>
                 </div>
               </div>
-              
+
               {!contactSaved ? (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -561,7 +558,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                       value={saveContactName}
                       onChange={(e) => setSaveContactName(e.target.value)}
                       placeholder="Enter contact name"
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 bg-white"
                       onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), saveContact())}
                     />
                     <button
@@ -624,7 +621,7 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
               </button>
             </div>
           )}
-          
+
           {callSuccess && (
             <div className="flex justify-end pt-4">
               <button

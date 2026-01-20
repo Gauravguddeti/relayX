@@ -100,7 +100,11 @@ class CampaignScheduler:
             return [c for c in campaigns if c['state'] == 'running']
             
         except Exception as e:
-            logger.error(f"Error finding active campaigns: {e}")
+            # Don't log SSL errors as ERROR - they're transient connection issues
+            if "SSL" in str(e) or "EOF" in str(e):
+                logger.debug(f"Temporary connection issue finding campaigns: {e}")
+            else:
+                logger.error(f"Error finding active campaigns: {e}")
             return []
     
     async def process_campaign(self, campaign: Dict):
