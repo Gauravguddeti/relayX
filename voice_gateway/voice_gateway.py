@@ -297,6 +297,11 @@ class CallSession:
     # Frame counts for hysteresis (at 30ms per frame)
     SPEECH_START_FRAMES = 6    # 6 frames × 30ms = 180ms of speech to trigger (optimized from 8)
     SPEECH_END_FRAMES = 6      # 6 frames × 30ms = 180ms of silence to end (CRITICAL: was 7-10, caused STT to never trigger)
+    
+    # BARGE-IN THRESHOLDS (stricter - AI speaking, user wants to interrupt)
+    # Require LOUDER and LONGER speech to interrupt the AI
+    MIN_SPEECH_ENERGY_BARGEIN = 75   # Higher energy required to interrupt (vs 60 for listening)
+    SPEECH_START_FRAMES_BARGEIN = 10 # 10 frames × 30ms = 300ms sustained speech to interrupt
 
     # LANGUAGE SELECTION
     LANGUAGE_SELECTION_ENABLED = True
@@ -480,12 +485,11 @@ class CallSession:
             return False
         
         # ==================== SANITY CHECK 2: Minimum Energy ====================
-        # Energy < MIN_SPEECH_ENERGY: Too quiet, likely silence
-        # NOTE: We removed MAX_NOISE_ENERGY check because mobile phones with AGC
-        # produce high-energy audio (often 127) that is valid speech, not noise.
-        # WebRTC VAD handles actual noise detection better than energy thresholds.
-        if energy < self.MIN_SPEECH_ENERGY:
-            return False  # Too quiet to be speech
+        # Dynamic threshold: stricter energy when AI is speaking (barge-in mode)
+        # This prevents small noises from interrupting the AI
+        min_energy = self.MIN_SPEECH_ENERGY_BARGEIN if self.state == ConversationState.AI_SPEAKING else self.MIN_SPEECH_ENERGY
+        if energy < min_energy:
+            return False  # Too quiet to be speech (or not loud enough to interrupt)
         
         # Add to VAD buffer for frame alignment
         self.vad_buffer.extend(audio_data)
@@ -572,10 +576,15 @@ class CallSession:
             self.consecutive_speech_frames += 1
             self.consecutive_silence_frames = 0
             
-            # Check for speech start trigger (only in LISTENING state)
-            if self.consecutive_speech_frames >= self.SPEECH_START_FRAMES and self.state == ConversationState.LISTENING:
+            # Check for speech start trigger (LISTENING mode - standard threshold)
+            if self.state == ConversationState.LISTENING and self.consecutive_speech_frames >= self.SPEECH_START_FRAMES:
                 logger.info(f"🎙️ VAD: Speech detected for {self.consecutive_speech_frames} frames ({self.consecutive_speech_frames * 30}ms) - triggering speech_start")
                 return "speech_start"
+            
+            # Check for BARGE-IN trigger (AI_SPEAKING mode - stricter threshold)
+            if self.state == ConversationState.AI_SPEAKING and self.consecutive_speech_frames >= self.SPEECH_START_FRAMES_BARGEIN:
+                logger.info(f"🚨 BARGE-IN: User spoke for {self.consecutive_speech_frames} frames ({self.consecutive_speech_frames * 30}ms) - interrupting AI")
+                return "barge_in"
         else:
             self.consecutive_silence_frames += 1
             # DON'T reset speech frames immediately - allow gaps in speech
@@ -1526,6 +1535,15 @@ VOICE FORMATTING:
                         else:
                             logger.debug(f"Speech end but insufficient audio ({len(session.audio_buffer)}B) - skipping")
                             session.reset_for_listening()
+                    
+                    elif vad_event == "barge_in" and session.state == ConversationState.AI_SPEAKING:
+                        # User wants to interrupt AI (300ms of loud, sustained speech)
+                        logger.info(f"🚨 BARGE-IN: Interrupting AI speech, switching to USER_SPEAKING")
+                        session.interrupted = True  # Signal to stop TTS playback
+                        session.state = ConversationState.USER_SPEAKING
+                        session.user_speaking_start_time = datetime.now()
+                        session.audio_buffer.clear()  # Start fresh buffer for user's input
+                        session.add_audio_chunk(audio_data)  # Add the triggering audio
                     
                     # Periodic debug logging (every second)
                     if len(session.audio_buffer) % 8000 == 0 and len(session.audio_buffer) > 0:
