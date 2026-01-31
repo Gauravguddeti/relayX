@@ -22,7 +22,7 @@ openai==2.8.1
 
 # Audio Processing (minimal)
 pydub==0.25.1
-numpy==1.26.3
+numpy==1.26.4
 # Lightweight VAD (5MB vs 220MB for torch+silero)
 webrtcvad==2.0.10
 
@@ -43,7 +43,7 @@ passlib[bcrypt]==1.7.4
 
 # Bulk Campaigns
 phonenumbers==8.13.27
-pandas==2.1.4
+pandas==2.2.0
 openpyxl==3.1.2
 APScheduler==3.10.4
 
