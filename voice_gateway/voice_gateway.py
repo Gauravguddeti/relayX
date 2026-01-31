@@ -1531,6 +1531,7 @@ VOICE FORMATTING:
                     if vad_event == "speech_start" and session.state == ConversationState.LISTENING:
                         # User started speaking (210ms of speech detected)
                         session.state = ConversationState.USER_SPEAKING
+                        session.user_speaking_start_time = datetime.now()  # CRITICAL: Required for early trigger
                         session.add_audio_chunk(audio_data)  # Add the triggering audio too
                         logger.info(f"🎤 Speech START detected - state: USER_SPEAKING | Echo window: {session.is_in_echo_window()}")
                     
