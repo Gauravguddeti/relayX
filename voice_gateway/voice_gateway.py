@@ -273,30 +273,30 @@ class CallSession:
     - POST-NOISE COOLDOWN: Brief delay after noise detection
     """
     
-    # VAD HYSTERESIS TIMINGS (prevents false triggers)
-    SPEECH_START_MS = 200      # VAD speech for 200ms → USER_SPEAKING (was 120ms)
-    SPEECH_END_MS = 240        # VAD silence for 240ms → End utterance (was 300ms)
+    # VAD HYSTERESIS TIMINGS (synced with FRAME counts)
+    SPEECH_START_MS = 180      # 6 frames × 30ms = 180ms → USER_SPEAKING
+    SPEECH_END_MS = 180        # 6 frames × 30ms = 180ms → End utterance (was 250ms, caused STT never trigger)
     
     # AUDIO DURATION THRESHOLDS (critical for filtering noise)
-    MIN_AUDIO_DURATION_MS = 400   # Minimum 400ms to even consider processing (was 200ms)
-    MIN_STT_DURATION_MS = 500     # Minimum 500ms before sending to STT (prevent short noise)
-    DISCARD_FIRST_IF_SHORT_MS = 350  # Discard first utterance after AI if < 350ms
+    MIN_AUDIO_DURATION_MS = 300   # Minimum 300ms to consider processing
+    MIN_STT_DURATION_MS = 350     # Minimum 350ms before sending to STT (was 450ms)
+    DISCARD_FIRST_IF_SHORT_MS = 300  # Discard first utterance after AI if < 300ms
     
     # ENERGY THRESHOLDS (mulaw: 127 is zero-crossing/silence center)
     # Only minimum energy check - mobile AGC produces high energy that is valid speech
     MIN_SPEECH_ENERGY = 30     # Minimum energy to consider as possible speech (lowered for mobile)
     
     # PROTECTION WINDOWS
-    ECHO_IGNORE_MS = 400       # Ignore VAD for 400ms after TTS completes (was 300ms)
-    POST_NOISE_COOLDOWN_MS = 200  # Cooldown after noise detection before arming again
+    ECHO_IGNORE_MS = 300       # Ignore VAD for 300ms after TTS completes (balanced)
+    POST_NOISE_COOLDOWN_MS = 150  # Cooldown after noise detection
     
     # WebRTC VAD frame settings
     VAD_FRAME_DURATION_MS = 30  # 30ms frames for accuracy
     VAD_FRAME_BYTES = 240       # 30ms at 8kHz = 240 bytes
     
     # Frame counts for hysteresis (at 30ms per frame)
-    SPEECH_START_FRAMES = 8    # 8 frames × 30ms = 240ms of speech to trigger (was 7)
-    SPEECH_END_FRAMES = 10     # 10 frames × 30ms = 300ms of silence to end (was 8)
+    SPEECH_START_FRAMES = 6    # 6 frames × 30ms = 180ms of speech to trigger (optimized from 8)
+    SPEECH_END_FRAMES = 6      # 6 frames × 30ms = 180ms of silence to end (CRITICAL: was 7-10, caused STT to never trigger)
 
     # LANGUAGE SELECTION
     LANGUAGE_SELECTION_ENABLED = True
@@ -782,7 +782,8 @@ async def twiml_handler(call_id: str, request: Request):
         return Response(content=twiml, media_type="application/xml")
         
     except Exception as e:
-        logger.error(f"Error generating TwiML for {call_id}: {e}", exc_info=True)
+        error_msg = str(e).replace("{", "{{").replace("}", "}}")
+        logger.error(f"Error generating TwiML for {call_id}: {error_msg}", exc_info=False)
         return Response(
             content="<Response><Say>Sorry, there was an error</Say></Response>",
             media_type="application/xml"
@@ -1494,6 +1495,19 @@ VOICE FORMATTING:
                     # This is critical to prevent echo/noise from polluting the buffer
                     if session.state == ConversationState.USER_SPEAKING:
                         session.add_audio_chunk(audio_data)
+                        
+                        # ==================== FORCE-PROCESS TIMEOUT (CRITICAL FIX) ====================
+                        # If user speaks continuously without natural pause, force STT after 4 seconds
+                        # This prevents buffer from growing indefinitely and audio being lost
+                        if session.user_speaking_start_time:
+                            speaking_duration = (datetime.now() - session.user_speaking_start_time).total_seconds()
+                            buffer_duration = len(session.audio_buffer) / TWILIO_SAMPLE_RATE
+                            
+                            # Force process if speaking > 4s without natural pause
+                            if speaking_duration > 4.0 and buffer_duration > 3.0:
+                                logger.warning(f"⏱️ FORCE PROCESS: {speaking_duration:.1f}s speaking, {buffer_duration:.1f}s buffered - no natural pause detected")
+                                await process_user_speech_fast(session, websocket, stt, llm, tts, db)
+                                continue
                     
                     # State transitions based on VAD edges
                     if vad_event == "speech_start" and session.state == ConversationState.LISTENING:
@@ -1670,10 +1684,26 @@ async def process_user_speech_fast(
                 current_prompt = session.agent_config.get("system_prompt", "")
                 session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: {lang_instruction[detected_lang]}"
                 
-                # Generate the greeting now
-                greeting_prompt = f"User has just selected {detected_lang}. Generate a short, polite opening line in {detected_lang}."
-                messages = [{"role": "user", "content": greeting_prompt}]
-                response_text = await llm.generate_response(messages=messages, system_prompt=lang_instruction[detected_lang], max_tokens=60)
+                # Generate the REAL greeting using agent's full context and knowledge base
+                GREETING_PROMPT = """You are making an OUTBOUND sales call and the user just selected their language. Generate your opening line.
+
+CRITICAL RULES:
+- Output ONLY the exact words you will speak - nothing else
+- NO quotes, NO meta-commentary
+- Keep it to 2-3 sentences MAX (this is a phone call)
+- Sound natural and confident
+- Use contractions: "I'm" not "I am"
+
+STRUCTURE:
+1. Brief introduction (name + company from your knowledge)
+2. State purpose based on your role
+3. Polite ask if they have a moment
+
+Speak in the user's selected language consistently throughout."""
+                
+                system_prompt_with_greeting = f"{GREETING_PROMPT}\n\n{session.resolved_system_prompt}"
+                messages = [{"role": "user", "content": "Generate your opening line for this call in the user's selected language."}]
+                response_text = await llm.generate_response(messages=messages, system_prompt=system_prompt_with_greeting, max_tokens=80)
                 
                 # Send text -> TTS -> Audio
                 session.state = ConversationState.AI_SPEAKING
@@ -1837,7 +1867,7 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
                     messages=messages,
                     system_prompt=system_prompt,
                     temperature=session.agent_config.get("temperature", 0.7),
-                    max_tokens=150  # Increased for better, more complete responses
+                    max_tokens=100  # Optimized: faster responses (was 150)
                 )
                 llm_duration = (datetime.now() - llm_start).total_seconds() * 1000
                 logger.info(f"🤖 LLM response ({llm_duration:.0f}ms): {ai_response}")
@@ -2051,7 +2081,7 @@ async def startup_event():
         logger.warning(f"Could not start ngrok automatically: {e}")
         logger.info("You can start ngrok manually: ngrok http 8001")
     
-    logger.info("✅ WebRTC VAD ready (240ms speech start, 300ms speech end)")
+    logger.info("✅ WebRTC VAD ready (180ms speech start, 180ms speech end) + Force-process @4s")
     
     try:
         logger.info("Loading cache client...")

@@ -45,14 +45,20 @@ export default function CallDetails() {
 
   async function fetchCallDetails() {
     try {
+      const token = localStorage.getItem('relayx_token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      
       // Fetch call data
-      const callRes = await fetch(`/calls/${callId}`);
+      const callRes = await fetch(`/calls/${callId}`, { headers });
+      if (!callRes.ok) {
+        throw new Error(`Failed to fetch call: ${callRes.status}`);
+      }
       const callData = await callRes.json();
       setCall(callData);
 
       // Fetch analysis
       try {
-        const analysisRes = await fetch(`/calls/${callId}/analysis`);
+        const analysisRes = await fetch(`/calls/${callId}/analysis`, { headers });
         if (analysisRes.ok) {
           const analysisData = await analysisRes.json();
           setAnalysis(analysisData);
@@ -62,13 +68,13 @@ export default function CallDetails() {
       }
 
       // Fetch transcripts
-      const transcriptRes = await fetch(`/calls/${callId}/transcripts`);
+      const transcriptRes = await fetch(`/calls/${callId}/transcripts`, { headers });
       const transcriptData = await transcriptRes.json();
       setTranscripts(transcriptData);
 
       // Check for recording
       try {
-        const recordingRes = await fetch(`/calls/${callId}/recording`, { method: 'HEAD' });
+        const recordingRes = await fetch(`/calls/${callId}/recording`, { method: 'HEAD', headers });
         if (recordingRes.ok) {
           setAudioUrl(`/calls/${callId}/recording`);
         }

@@ -38,13 +38,13 @@ class SarvamClient:
             payload = {
                 "inputs": [text],
                 "target_language_code": language_code,
-                "speaker": "meera" if speaker_gender == "Female" else "amartya", # Default voices
+                "speaker": "manisha",  # Using manisha voice
                 "pitch": 0,
-                "pace": 1.0,
+                "pace": 1.2,  # Optimized: faster speech (was 1.0) - saves ~15-20% time
                 "loudness": 1.5,
                 "speech_sample_rate": 8000, # Match Twilio
                 "enable_preprocessing": True,
-                "model": "bulbul:v1"
+                "model": "bulbul:v2"
             }
             
             async with httpx.AsyncClient() as client:
@@ -84,7 +84,7 @@ class SarvamClient:
             files = {'file': ('audio.wav', audio_data, 'audio/wav')}
             data = {
                 'language_code': language_code,
-                'model': 'saarika:v1' 
+                'model': 'saarika:v2.5' 
             }
             
             # Note: httpx handles multipart boundaries automatically

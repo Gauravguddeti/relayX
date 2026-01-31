@@ -85,14 +85,10 @@ services:
     networks:
       - relayx-network
 
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: relayx-ngrok
-    command: http voice-gateway:8001 --log stdout
-    ports:
-      - "4040:4040" # ngrok web interface
-    environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: relayx-cloudflare-tunnel
+    command: tunnel --no-autoupdate --url http://voice-gateway:8001
     depends_on:
       - voice-gateway
     restart: unless-stopped

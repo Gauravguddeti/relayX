@@ -69,7 +69,7 @@ async def initiate_twilio_call(call_id: str, to_number: str, db: SupabaseDB):
         
         logger.info(f"Initiating Twilio call to {to_number} with TwiML: {twiml_url}")
         
-        # Make the call with recording enabled
+        # Make the call - simplified for trial account compatibility
         call = twilio_client.calls.create(
             to=to_number,
             from_=TWILIO_PHONE_NUMBER,
@@ -77,10 +77,7 @@ async def initiate_twilio_call(call_id: str, to_number: str, db: SupabaseDB):
             status_callback=f"{gateway_url}/callbacks/status/{call_id}",
             status_callback_event=["initiated", "ringing", "answered", "completed", "busy", "no-answer", "failed", "canceled"],
             status_callback_method="POST",
-            method="POST",  # Use POST for TwiML URL
-            record=True,  # Enable call recording
-            recording_status_callback=f"{gateway_url}/callbacks/recording/{call_id}",
-            recording_status_callback_method="POST"
+            method="POST"  # Use POST for TwiML URL
         )
         
         logger.info(f"✅ Call created - SID: {call.sid} | TwiML will be requested from: {twiml_url}")

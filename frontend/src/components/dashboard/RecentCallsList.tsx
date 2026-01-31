@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, Clock, CheckCircle, XCircle, PhoneMissed, PhoneIncoming } from 'lucide-react';
+import { Phone, Clock, CheckCircle, XCircle, PhoneMissed, PhoneIncoming, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Call {
@@ -12,7 +12,11 @@ interface Call {
   direction: string;
 }
 
-export default function RecentCallsList() {
+interface RecentCallsListProps {
+  onRefresh?: () => void;
+}
+
+export default function RecentCallsList({ onRefresh }: RecentCallsListProps = {}) {
   const { userId } = useAuth();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,9 +25,8 @@ export default function RecentCallsList() {
   useEffect(() => {
     if (userId) {
       fetchCalls();
-      // Auto-refresh every 30 seconds
-      const interval = setInterval(fetchCalls, 30000);
-      return () => clearInterval(interval);
+      // Removed auto-refresh to prevent dashboard reload during calls
+      // Users can manually refresh if needed
     }
   }, [userId]);
 
@@ -70,7 +73,7 @@ export default function RecentCallsList() {
   }
 
   function formatDuration(seconds: number) {
-    if (!seconds) return '-';
+    if (!seconds || seconds === 0) return '-';
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -86,6 +89,12 @@ export default function RecentCallsList() {
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
     return date.toLocaleDateString();
   }
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    await fetchCalls();
+    if (onRefresh) onRefresh();
+  };
 
   if (loading) {
     return (
@@ -111,12 +120,31 @@ export default function RecentCallsList() {
         <p className="text-sm text-gray-500 mt-1">
           Your call history will appear here once you start making calls
         </p>
+        <button
+          onClick={handleRefresh}
+          className="mt-4 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+        >
+          <RefreshCw className="w-4 h-4 inline mr-1" />
+          Refresh
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      {/* Refresh Button */}
+      <div className="px-6 py-3 border-b border-gray-200 flex justify-end">
+        <button
+          onClick={handleRefresh}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+      <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
@@ -179,6 +207,7 @@ export default function RecentCallsList() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

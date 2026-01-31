@@ -173,7 +173,7 @@ export default function Dashboard() {
                   <h2 className="text-xl font-semibold text-gray-900">Recent Calls</h2>
                   <p className="text-sm text-gray-600 mt-1">View and analyze your recent conversations</p>
                 </div>
-                <RecentCallsList />
+                <RecentCallsList onRefresh={fetchDashboardStats} />
               </div>
             </div>
 

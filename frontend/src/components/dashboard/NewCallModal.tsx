@@ -211,8 +211,11 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
       setScheduledTime('');
       setSelectedContact(null);
 
-
-      if (onSuccess) onSuccess();
+      // Delay the refresh slightly to allow call to be initiated by Twilio
+      // This prevents showing misleading "completed" status immediately
+      setTimeout(() => {
+        if (onSuccess) onSuccess();
+      }, 2000);
 
       // Auto-close after delay
       setTimeout(() => {
@@ -407,6 +410,21 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">Enter phone number without country code</p>
+                
+                {/* Twilio Trial Account Warning */}
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-800">
+                      <p className="font-semibold mb-1">Using Twilio Trial Account?</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li>Verify recipient number in Twilio console first</li>
+                        <li>You'll need to manually press 1 when trial message plays</li>
+                        <li>Or add $1+ credit to remove trial restrictions</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Contact Name (Optional) */}
@@ -542,9 +560,12 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
                   <Check className="w-5 h-5 text-green-600" />
-                  <span className="text-green-800 font-semibold">Call initiated successfully!</span>
+                  <span className="text-green-800 font-semibold">Call is being initiated...</span>
                 </div>
               </div>
+              <p className="text-sm text-green-700 mb-4">
+                📞 Your phone will ring shortly. The call is being connected through Twilio.
+              </p>
 
               {!contactSaved ? (
                 <div>
@@ -586,9 +607,9 @@ export default function NewCallModal({ isOpen, onClose, onSuccess }: NewCallModa
             <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6">
               <div className="flex items-center space-x-2">
                 <Check className="w-5 h-5 text-green-600" />
-                <span className="text-green-800 font-semibold">Call initiated successfully!</span>
+                <span className="text-green-800 font-semibold">Call is being initiated...</span>
               </div>
-              <p className="text-sm text-green-700 mt-2">The call is being placed to {lastCalledNumber}</p>
+              <p className="text-sm text-green-700 mt-2">📞 Your phone will ring shortly. The call is being connected to {lastCalledNumber}</p>
             </div>
           )}
 
