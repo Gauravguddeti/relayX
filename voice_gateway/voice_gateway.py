@@ -133,8 +133,8 @@ TWILIO_AUDIO_FORMAT = "mulaw"  # μ-law encoding
 
 # WebRTC VAD (lightweight, <1ms per frame)
 # Mode: 0=Quality, 1=Low Bitrate, 2=Aggressive, 3=Very Aggressive
-# Using mode=2 (Aggressive) to reduce false positives from noise/echo
-vad = webrtcvad.Vad(mode=2)
+# Using mode=3 (Very Aggressive) like Vapi - maximum sensitivity
+vad = webrtcvad.Vad(mode=3)
 
 # Call sessions storage
 active_sessions = {}
@@ -146,6 +146,13 @@ class ConversationState(Enum):
     LISTENING = "listening"        # Waiting for user to speak
     USER_SPEAKING = "user_speaking"  # User is actively speaking
     AI_SPEAKING = "ai_speaking"    # AI is outputting audio
+
+class CallStage(Enum):
+    """Call progression stages for context-aware timeouts (Vapi-like)"""
+    LANGUAGE_SELECT = "language_select"  # User selecting language (1-2 words)
+    YES_NO = "yes_no"                    # Simple confirmation (1-3 words)
+    SHORT_ANSWER = "short_answer"        # Name, number, date (1-5 words)
+    OPEN_ENDED = "open_ended"            # Detailed response (sentences)
 
 
 # ==================== INTENT PRE-CLASSIFIER (Before LLM) ====================
@@ -275,16 +282,16 @@ class CallSession:
     
     # VAD HYSTERESIS TIMINGS (synced with FRAME counts)
     SPEECH_START_MS = 180      # 6 frames × 30ms = 180ms → USER_SPEAKING
-    SPEECH_END_MS = 180        # 6 frames × 30ms = 180ms → End utterance (was 250ms, caused STT never trigger)
+    SPEECH_END_MS = 700        # 23 frames × 30ms = 700ms → End utterance (Vapi's timing)
     
     # AUDIO DURATION THRESHOLDS (critical for filtering noise)
     MIN_AUDIO_DURATION_MS = 300   # Minimum 300ms to consider processing
-    MIN_STT_DURATION_MS = 350     # Minimum 350ms before sending to STT (was 450ms)
+    MIN_STT_DURATION_MS = 350     # Minimum 350ms before sending to STT
     DISCARD_FIRST_IF_SHORT_MS = 300  # Discard first utterance after AI if < 300ms
     
     # ENERGY THRESHOLDS (mulaw: 127 is zero-crossing/silence center)
-    # Mobile AGC boosts background noise - need higher threshold to filter it
-    MIN_SPEECH_ENERGY = 60     # Minimum energy to consider as possible speech (was 30, too sensitive for mobile)
+    # Vapi uses simple fixed threshold ~30-40, NO adaptive calibration
+    MIN_SPEECH_ENERGY = 30     # Fixed threshold like Vapi (simple and reliable)
     
     # PROTECTION WINDOWS
     ECHO_IGNORE_MS = 300       # Ignore VAD for 300ms after TTS completes (balanced)
@@ -305,6 +312,22 @@ class CallSession:
 
     # LANGUAGE SELECTION
     LANGUAGE_SELECTION_ENABLED = True
+    
+    # ==================== VAPI-LIKE CONTEXT-AWARE TIMEOUTS ====================
+    # Dynamic max speech duration based on expected answer type
+    MAX_SPEECH_DURATION_BY_STAGE = {
+        CallStage.LANGUAGE_SELECT: 1.0,   # "English" - short keyword
+        CallStage.YES_NO: 1.5,             # "Yes", "No", "Maybe" - brief
+        CallStage.SHORT_ANSWER: 2.5,       # "John Smith", "Monday" - concise
+        CallStage.OPEN_ENDED: 6.0          # Full explanation - allow pauses
+    }
+    
+    # Hotwords for immediate cutoff (Phrase Clamping)
+    LANGUAGE_HOTWORDS = ["english", "hindi", "marathi", "हिंदी", "मराठी"]
+    
+    # Adaptive noise calibration
+    CALIBRATION_DURATION_MS = 500  # Sample 500ms at call start
+    NOISE_THRESHOLD_MARGIN = 15     # Add this to baseline noise
     
     def __init__(self, call_id: str, agent_id: str, stream_sid: str, voice_settings: dict = None):
         self.call_id = call_id
@@ -392,7 +415,10 @@ class CallSession:
         self.selected_language = "en"
         self.language_retry_count = 0  # Track failed language detection attempts (max 2)
         
-        logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
+        # Call Stage (for context-aware timeouts)
+        self.call_stage = CallStage.LANGUAGE_SELECT if self.LANGUAGE_SELECTION_ENABLED else CallStage.OPEN_ENDED
+        
+        logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid} | Stage: {self.call_stage.value}")
     
     def add_audio_chunk(self, audio_data: bytes):
         """Add audio chunk to buffer"""
@@ -551,24 +577,11 @@ class CallSession:
         - Speech end: 10 consecutive silence frames (~300ms)
         
         PROTECTION:
-        - Ignores VAD during echo window (400ms after TTS)
         - Ignores VAD while LLM is in-flight
-        - Ignores VAD during post-noise cooldown (200ms)
         """
         # ==================== PROTECTION CHECKS ====================
-        if self.is_in_echo_window():
-            # Still in echo protection window - ignore all VAD
-            self.consecutive_speech_frames = 0
-            self.consecutive_silence_frames = 0
-            return None
-        
         if self.llm_in_flight:
             # LLM is processing - ignore VAD to prevent false triggers
-            return None
-        
-        if self.is_in_noise_cooldown():
-            # Just detected noise - brief cooldown before arming again
-            self.consecutive_speech_frames = 0
             return None
         
         # ==================== STATE MACHINE ====================
@@ -683,6 +696,64 @@ class CallSession:
                     self.interrupt_speech_start = None
                     self._interrupt_silence_frames = 0
             return False
+    
+    # ==================== CONTEXT TRACKING ====================
+    
+    def get_max_speech_duration(self) -> float:
+        """
+        Get context-aware max speech duration based on call stage.
+        Simple timeout: 6 seconds for most cases, shorter for language selection.
+        """
+        return self.MAX_SPEECH_DURATION_BY_STAGE.get(self.call_stage, 6.0)
+    
+    def should_force_process_timeout(self) -> bool:
+        """
+        Check if we should force-process due to timeout.
+        Prevents infinite buffering when user doesn't pause naturally.
+        """
+        if self.state != ConversationState.USER_SPEAKING:
+            return False
+        
+        if not self.user_speaking_start_time:
+            return False
+        
+        speaking_duration = (datetime.now() - self.user_speaking_start_time).total_seconds()
+        max_duration = self.get_max_speech_duration()
+        buffer_duration = len(self.audio_buffer) / TWILIO_SAMPLE_RATE
+        
+        # Force process if exceeded stage-specific max AND have meaningful audio
+        if speaking_duration >= max_duration and buffer_duration >= 0.5:
+            logger.warning(f"⏱️ Context-aware timeout: {speaking_duration:.1f}s >= {max_duration:.1f}s (stage: {self.call_stage.value})")
+            return True
+        
+        # Additional safety: absolute max regardless of stage
+        if speaking_duration >= 8.0 and buffer_duration >= 1.0:
+            logger.warning(f"⏱️ Absolute timeout: {speaking_duration:.1f}s (hard limit)")
+            return True
+        
+        return False
+    
+    def update_call_stage(self, ai_question: str = None):
+        """
+        Update call stage based on AI's question context.
+        Allows dynamic timeout adjustment as conversation progresses.
+        """
+        if not ai_question:
+            return
+        
+        question_lower = ai_question.lower()
+        
+        # Detect question type from AI's last response
+        if any(word in question_lower for word in ["english", "hindi", "marathi", "language", "prefer"]):
+            self.call_stage = CallStage.LANGUAGE_SELECT
+        elif any(word in question_lower for word in ["yes or no", "yes/no", "confirm", "interested", "okay", "good time"]):
+            self.call_stage = CallStage.YES_NO
+        elif any(word in question_lower for word in ["name", "email", "phone", "number", "date", "time", "when", "which day"]):
+            self.call_stage = CallStage.SHORT_ANSWER
+        else:
+            self.call_stage = CallStage.OPEN_ENDED
+        
+        logger.debug(f"📊 Call stage updated to: {self.call_stage.value}")
 
 
 def classify_interruption_intent(text: str) -> tuple[str, bool]:
@@ -1429,43 +1500,42 @@ VOICE FORMATTING:
 - Write times as words: "twelve PM" not "12:00"
 - Write "twenty four seven" not "24/7"
 - Numbers as words for pronunciation"""
-                    
-                    base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
-                    system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
-                    
-                    greeting = await llm.generate_response(
-                        messages=[{"role": "user", "content": "Generate your opening line for this cold call."}],
-                        system_prompt=system_prompt,
-                        temperature=agent.get("temperature", 0.7),
-                        max_tokens=50  # Increased for better greeting
-                    )
-                    
-                    # Clean meta-commentary
-                    import re
-                    if any(word in greeting.lower() for word in ['here', 'opening', 'line:', 'say:', '"']):
-                        match = re.search(r'[""]([^""]+)[""]', greeting)
-                        if match:
-                            greeting = match.group(1)
-                        else:
-                            greeting = re.sub(r'^.*?(?:opening line|here|say)s?:?\s*', '', greeting, flags=re.IGNORECASE).strip().strip('"\'')
-                    
-                    logger.info(f"Generated greeting: {greeting}")
-                    
-                    # Save to database
-                    await db.add_transcript(call_id=call_id, speaker="agent", text=greeting)
-                    
-                    # Set AI_SPEAKING state and send audio
-                    session.state = ConversationState.AI_SPEAKING
-                    session.interrupted = False
-                    await send_ai_response_with_bargein(websocket, session, greeting, tts, db, call_id)
-                    
-                    # Mark AI turn complete for first-utterance tracking
-                    session.mark_ai_turn_complete()
-                    
-                    # Immediately ready for user input (NO SLEEP!)
-                    session.reset_for_listening()
-                    logger.info("🟢 AI finished speaking - ready for user input (state: LISTENING)")
-                
+                        
+                        base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
+                        system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
+                        
+                        greeting = await llm.generate_response(
+                            messages=[{"role": "user", "content": "Generate your opening line for this cold call."}],
+                            system_prompt=system_prompt,
+                            temperature=agent.get("temperature", 0.7),
+                            max_tokens=50  # Increased for better greeting
+                        )
+                        
+                        # Clean meta-commentary
+                        import re
+                        if any(word in greeting.lower() for word in ['here', 'opening', 'line:', 'say:', '"']):
+                            match = re.search(r'[""]([^""]+)[""]', greeting)
+                            if match:
+                                greeting = match.group(1)
+                            else:
+                                greeting = re.sub(r'^.*?(?:opening line|here|say)s?:?\s*', '', greeting, flags=re.IGNORECASE).strip().strip('"\'')
+                        
+                        logger.info(f"Generated greeting: {greeting}")
+                        
+                        # Save to database
+                        await db.add_transcript(call_id=call_id, speaker="agent", text=greeting)
+                        
+                        # Set AI_SPEAKING state and send audio
+                        session.state = ConversationState.AI_SPEAKING
+                        session.interrupted = False
+                        await send_ai_response_with_bargein(websocket, session, greeting, tts, db, call_id)
+                        
+                        # Mark AI turn complete for first-utterance tracking
+                        session.mark_ai_turn_complete()
+                        
+                        # Immediately ready for user input (NO SLEEP!)
+                        session.reset_for_listening()
+                        logger.info("🟢 AI finished speaking - ready for user input (state: LISTENING)")
                 elif event == "media":
                     if not session:
                         continue
@@ -1506,10 +1576,8 @@ VOICE FORMATTING:
                     if session.state == ConversationState.USER_SPEAKING:
                         session.add_audio_chunk(audio_data)
                         
-                        # ==================== FORCE-PROCESS TIMEOUT (CRITICAL FIX) ====================
-                        # If user speaks continuously without natural pause, force STT
-                        # Language selection: 0.5s (faster for simple keywords)
-                        # Normal conversation: 3s (gives time for longer sentences)
+                        # ==================== SIMPLE TIMEOUT (VAPI-LIKE) ====================
+                        # Force process if speaking too long without natural pause
                         if session.user_speaking_start_time:
                             speaking_duration = (datetime.now() - session.user_speaking_start_time).total_seconds()
                             buffer_duration = len(session.audio_buffer) / TWILIO_SAMPLE_RATE
@@ -1642,10 +1710,10 @@ async def process_user_speech_fast(
                 session.reset_for_listening()
                 return
         
-        # ==================== AUDIO QUALITY GATE 2: Energy ====================
-        # Only check minimum energy - max energy check removed because mobile phones
-        # with AGC produce high-energy audio (often 127) that is valid speech
+        # ==================== AUDIO QUALITY GATE 2: Energy (FIXED THRESHOLD) ====================
+        # Use simple fixed threshold like Vapi (30) - reliable and proven
         avg_energy = sum(abs(b - 127) for b in audio_mulaw) / len(audio_mulaw)
+        
         if avg_energy < session.MIN_SPEECH_ENERGY:
             logger.info(f"🚫 Energy too low ({avg_energy:.1f} < {session.MIN_SPEECH_ENERGY}) - skipping")
             session.mark_noise_detected()
@@ -1971,6 +2039,10 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
         session.pending_ai_text = ai_response
         session.last_ai_response = ai_response
         
+        # ==================== UPDATE CALL STAGE (VAPI-LIKE) ====================
+        # Detect question type from AI response to set context-aware timeout for next user turn
+        session.update_call_stage(ai_response)
+        
         # Send AI response with barge-in support
         session.state = ConversationState.AI_SPEAKING
         session.interrupted = False
@@ -2162,7 +2234,7 @@ async def startup_event():
         logger.warning(f"Could not start ngrok automatically: {e}")
         logger.info("You can start ngrok manually: ngrok http 8001")
     
-    logger.info("✅ WebRTC VAD ready (180ms speech start, 180ms speech end) + Force-process @4s")
+    logger.info("✅ WebRTC VAD ready (Mode 3 aggressive, 180ms speech start, 700ms speech end) + Force-process @4s")
     
     try:
         logger.info("Loading cache client...")
