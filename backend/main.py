@@ -81,10 +81,18 @@ app.include_router(system_routes.router)
 # Mount static files for dashboard
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
-# CORS middleware
+# CORS middleware - Allow frontend domains
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://relayx.tech",
+    "https://www.relayx.tech",
+    "https://relay-x.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

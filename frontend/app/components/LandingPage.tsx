@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useScroll, useSpring } from 'framer-motion'
-import Section from '../components/Section'
-import Layout from '../components/Layout'
-import Navbar from '../components/Navbar'
-import TestCallModal from '../components/TestCallModal'
-import { sections } from '../constants/sections'
+import Section from './Section'
+import Layout from './Layout'
+import { sections } from './constants/sections'
 
 export default function LandingPage() {
   const [activeSection, setActiveSection] = useState(0)
-  const [isTestCallModalOpen, setIsTestCallModalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({ container: containerRef })
   const scaleX = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 })
@@ -46,11 +43,6 @@ export default function LandingPage() {
 
   return (
     <Layout>
-      <Navbar />
-      <TestCallModal 
-        isOpen={isTestCallModalOpen} 
-        onClose={() => setIsTestCallModalOpen(false)} 
-      />
       <nav className="fixed top-0 right-0 h-screen flex flex-col justify-center z-30 p-4">
         {sections.map((section, index) => (
           <button
@@ -59,24 +51,22 @@ export default function LandingPage() {
               index === activeSection ? 'bg-white scale-150' : 'bg-gray-600'
             }`}
             onClick={() => handleNavClick(index)}
-            aria-label={`Go to ${section.title}`}
           />
         ))}
       </nav>
       <motion.div
-        className="fixed top-0 left-0 right-0 h-0.5 bg-cyan-500 origin-left z-30"
+        className="fixed top-0 left-0 right-0 h-0.5 bg-white origin-left z-30"
         style={{ scaleX }}
       />
       <div 
         ref={containerRef} 
-        className="h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide"
+        className="h-full overflow-y-auto snap-y snap-mandatory"
       >
         {sections.map((section, index) => (
           <Section
             key={section.id}
             {...section}
             isActive={index === activeSection}
-            onTestCall={() => setIsTestCallModalOpen(true)}
           />
         ))}
       </div>
