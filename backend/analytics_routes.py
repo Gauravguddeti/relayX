@@ -71,7 +71,7 @@ async def get_dashboard_stats(
         calls = response.data if response.data else []
         
         # Calculate stats
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         today_calls = 0
         interested_count = 0
         not_interested_count = 0
