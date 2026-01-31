@@ -53,13 +53,16 @@ git push origin main
 ### 2.2 Deploy to Vercel
 1. Go to https://vercel.com/new
 2. Import your GitHub repository
-3. Configure:
-   - **Framework Preset**: Vite
-   - **Root Directory**: `frontend`
+3. **IMPORTANT:** First set **Root Directory** to `frontend` and click "Edit" to confirm
+4. Configure:
+   - **Framework Preset**: Select "Vite" from dropdown (ignore FastAPI detection)
+   - **Root Directory**: `frontend` ✅ (already set)
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
 
-4. Click "Deploy" and wait (2-3 minutes)
+> **Note:** Vercel may detect FastAPI because there's a backend folder in the repo. Ignore this - we're only deploying the frontend. Setting the Root Directory to `frontend` first tells Vercel to look only in that folder.
+
+5. Click "Deploy" and wait (2-3 minutes)
 
 ### 2.3 Add Custom Domain
 1. In Vercel project → Settings → Domains
@@ -99,14 +102,27 @@ git push origin main
 1. Go to https://railway.app/new
 2. Click "Deploy from GitHub repo"
 3. Select your repository
-4. Railway will auto-detect Python
+4. Railway will auto-deploy (it may start building immediately)
 
-### 3.2 Configure Build Settings
-1. In Railway project → Settings
-2. Set:
-   - **Root Directory**: `backend`
+> **Note:** Railway often auto-deploys on first connection. This is fine - we'll configure it properly in the next step.
+
+### 3.2 Configure Build Settings (IMPORTANT!)
+Railway probably deployed from the wrong directory. Fix this:
+
+1. Click on your Railway project/service
+2. Go to **Settings** tab
+3. Scroll to **Service Settings** section
+4. Set these values:
+   - **Root Directory**: `backend` ← **CRITICAL - Set this!**
    - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
    - **Health Check Path**: `/health`
+5. Click **"Save"** or the values will auto-save
+6. Railway will automatically **redeploy** with correct settings
+
+**To verify it's using the right directory:**
+- Go to **Deployments** tab
+- Click the latest deployment
+- Check **Logs** - should show "Uvicorn running" not "No build command"
 
 ### 3.3 Add Environment Variables
 In Railway → Variables tab, add:
