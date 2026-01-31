@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 # Add shared modules to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(os.path.dirname(__file__))
 
 from shared.database import get_db
 from shared.llm_client import get_llm_client

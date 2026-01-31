@@ -21,7 +21,7 @@ groq==0.36.0
 openai==2.8.1
 
 # Audio Processing (minimal)
-pydub==0.25.1
+
 numpy>=2.1.0
 # Lightweight VAD (5MB vs 220MB for torch+silero)
 webrtcvad==2.0.10
@@ -29,7 +29,7 @@ webrtcvad==2.0.10
 # Utilities
 python-dotenv==1.0.0
 python-multipart==0.0.20
-httpx==0.25.2
+httpx==0.27.0
 
 # Web Scraping
 aiohttp==3.9.1
