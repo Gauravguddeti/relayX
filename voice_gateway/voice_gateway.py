@@ -283,8 +283,8 @@ class CallSession:
     DISCARD_FIRST_IF_SHORT_MS = 300  # Discard first utterance after AI if < 300ms
     
     # ENERGY THRESHOLDS (mulaw: 127 is zero-crossing/silence center)
-    # Only minimum energy check - mobile AGC produces high energy that is valid speech
-    MIN_SPEECH_ENERGY = 30     # Minimum energy to consider as possible speech (lowered for mobile)
+    # Mobile AGC boosts background noise - need higher threshold to filter it
+    MIN_SPEECH_ENERGY = 60     # Minimum energy to consider as possible speech (was 30, too sensitive for mobile)
     
     # PROTECTION WINDOWS
     ECHO_IGNORE_MS = 300       # Ignore VAD for 300ms after TTS completes (balanced)
@@ -385,6 +385,7 @@ class CallSession:
         # Language Selection State
         self.language_verified = not self.LANGUAGE_SELECTION_ENABLED
         self.selected_language = "en"
+        self.language_retry_count = 0  # Track failed language detection attempts (max 2)
         
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
@@ -1712,13 +1713,45 @@ Speak in the user's selected language consistently throughout."""
                 session.reset_for_listening()
                 return
             else:
-                # Clarify language
-                clarify_text = "Please say English, Hindi, or Marathi."
-                session.state = ConversationState.AI_SPEAKING
-                await send_ai_response_with_bargein(websocket, session, clarify_text, tts, db, session.call_id)
-                session.mark_ai_turn_complete()
-                session.reset_for_listening()
-                return
+                # No language detected - increment retry counter
+                session.language_retry_count += 1
+                logger.warning(f"⚠️ Language not detected (attempt {session.language_retry_count}/2): '{user_text}'")
+                
+                if session.language_retry_count >= 2:
+                    # Fallback to English after 2 failed attempts
+                    logger.info("🔄 Fallback: Defaulting to English after 2 failed attempts")
+                    detected_lang = "en"
+                    session.selected_language = detected_lang
+                    session.language_verified = True
+                    
+                    current_prompt = session.agent_config.get("system_prompt", "")
+                    session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: The user speaks ENGLISH."
+                    
+                    # Generate greeting in English
+                    GREETING_PROMPT = """You are making an OUTBOUND sales call. The user didn't specify a language, so use English.
+
+CRITICAL RULES:
+- Output ONLY the exact words you will speak
+- Keep it to 2-3 sentences MAX
+- Sound natural and confident"""
+                    
+                    system_prompt_with_greeting = f"{GREETING_PROMPT}\n\n{session.resolved_system_prompt}"
+                    messages = [{"role": "user", "content": "Generate your opening line for this call in English."}]
+                    response_text = await llm.generate_response(messages=messages, system_prompt=system_prompt_with_greeting, max_tokens=80)
+                    
+                    session.state = ConversationState.AI_SPEAKING
+                    await send_ai_response_with_bargein(websocket, session, response_text, tts, db, session.call_id)
+                    session.mark_ai_turn_complete()
+                    session.reset_for_listening()
+                    return
+                else:
+                    # First failed attempt - ask again with clearer prompt
+                    clarify_text = "I didn't catch that. Please say English, Hindi, or Marathi."
+                    session.state = ConversationState.AI_SPEAKING
+                    await send_ai_response_with_bargein(websocket, session, clarify_text, tts, db, session.call_id)
+                    session.mark_ai_turn_complete()
+                    session.reset_for_listening()
+                    return
 
         # ==================== INTENT CLASSIFICATION ====================
 
