@@ -1507,15 +1507,23 @@ VOICE FORMATTING:
                         session.add_audio_chunk(audio_data)
                         
                         # ==================== FORCE-PROCESS TIMEOUT (CRITICAL FIX) ====================
-                        # If user speaks continuously without natural pause, force STT after 4 seconds
-                        # This prevents buffer from growing indefinitely and audio being lost
+                        # If user speaks continuously without natural pause, force STT
+                        # Language selection: 0.5s (faster for simple keywords)
+                        # Normal conversation: 3s (gives time for longer sentences)
                         if session.user_speaking_start_time:
                             speaking_duration = (datetime.now() - session.user_speaking_start_time).total_seconds()
                             buffer_duration = len(session.audio_buffer) / TWILIO_SAMPLE_RATE
                             
-                            # Force process if speaking > 4s without natural pause
-                            if speaking_duration > 4.0 and buffer_duration > 3.0:
-                                logger.warning(f"⏱️ FORCE PROCESS: {speaking_duration:.1f}s speaking, {buffer_duration:.1f}s buffered - no natural pause detected")
+                            # EARLY TRIGGER for language selection (500ms is enough for "Hindi"/"English")
+                            if not session.language_verified and session.LANGUAGE_SELECTION_ENABLED:
+                                if buffer_duration >= 0.5 and speaking_duration >= 0.4:
+                                    logger.info(f"⚡ EARLY PROCESS (Language): {buffer_duration:.1f}s buffered after {speaking_duration:.1f}s speaking")
+                                    await process_user_speech_fast(session, websocket, stt, llm, tts, db)
+                                    continue
+                            
+                            # Force process if speaking > 3s without natural pause (reduced from 4s)
+                            if speaking_duration > 3.0 and buffer_duration > 2.5:
+                                logger.warning(f"⏱️ FORCE PROCESS: {speaking_duration:.1f}s speaking, {buffer_duration:.1f}s buffered - processing now")
                                 await process_user_speech_fast(session, websocket, stt, llm, tts, db)
                                 continue
                     
@@ -1673,6 +1681,27 @@ async def process_user_speech_fast(
             session.mark_noise_detected()
             session.reset_for_listening()
             return
+        
+        # ==================== GARBAGE TRANSCRIPT FILTER ====================
+        # Reject noise patterns that made it through STT (mobile mics pick up a lot of garbage)
+        import re
+        text_clean = user_text.strip().lower()
+        
+        # Garbage patterns: repeated chars, dots, pure noise sounds
+        garbage_patterns = [
+            r'^[aeiou]+h*$',      # "aaa", "uh", "ah", "ooh"
+            r'^\.+$',              # "..."
+            r'^[hmn]+$',           # "hmm", "mmm"
+            r'^(um+|uh+|er+)$',   # "um", "umm", "uh", "er"
+            r'^.{1,2}$',          # Single/double char gibberish
+        ]
+        
+        for pattern in garbage_patterns:
+            if re.match(pattern, text_clean):
+                logger.info(f"🗑️ Garbage transcript filtered: '{user_text}'")
+                session.mark_noise_detected()
+                session.reset_for_listening()
+                return
         
         # ==================== LANGUAGE SELECTION LOGIC ====================
         if not session.language_verified and session.LANGUAGE_SELECTION_ENABLED:
