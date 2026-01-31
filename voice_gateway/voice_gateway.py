@@ -1682,7 +1682,7 @@ async def process_user_speech_fast(
                 }
                 
                 # SAFE: Use resolved_system_prompt without mutating original agent_config
-                current_prompt = session.agent_config.get("system_prompt", "")
+                current_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("prompt_text") or ""
                 session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: {lang_instruction[detected_lang]}"
                 
                 # Generate the REAL greeting using agent's full context and knowledge base
@@ -1724,7 +1724,7 @@ Speak in the user's selected language consistently throughout."""
                     session.selected_language = detected_lang
                     session.language_verified = True
                     
-                    current_prompt = session.agent_config.get("system_prompt", "")
+                    current_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("prompt_text") or ""
                     session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: The user speaks ENGLISH."
                     
                     # Generate greeting in English
