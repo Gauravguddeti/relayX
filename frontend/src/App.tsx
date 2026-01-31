@@ -15,6 +15,8 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import TestBot from './pages/TestBot';
 import CalIntegration from './pages/CalIntegration';
 import Billing from './pages/Billing';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/AdminDashboard';
 
 function App() {
   return (
@@ -23,6 +25,8 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<AdminDashboard />} />
           <Route
             path="/dashboard"
             element={

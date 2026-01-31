@@ -1,35 +1,63 @@
 """
-Speech-to-Text using Groq Whisper API or Local Whisper
-Converts audio to text
+Speech-to-Text using Sarvam AI (Saarika)
+Optimized for Indian languages and accents
 """
-import numpy as np
 from loguru import logger
 import os
-import tempfile
 from typing import Optional
-from groq import Groq
+from shared.sarvam_client import get_sarvam_client
 
 
 class STTClient:
-    """Speech-to-Text client using Groq Whisper or Local Whisper"""
+    """Speech-to-Text client using Sarvam AI"""
     
     def __init__(self, model_name: str = None):
-        self.use_cloud = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
-        self.model_name = model_name or os.getenv("WHISPER_MODEL", "base")
+        logger.info("Initializing Sarvam STT Client...")
+        self.sarvam_client = get_sarvam_client()
+        logger.info("✅ Sarvam STT ready")
+    
+    async def transcribe(
+        self, 
+        audio_data: bytes,
+        language: str = "en",
+        prompt: str = None
+    ) -> Optional[str]:
+        """
+        Transcribe audio to text using Sarvam AI
         
-        if self.use_cloud:
-            # Use Groq's Whisper API (FREE, fast)
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise ValueError("GROQ_API_KEY not found in environment")
-            self.client = Groq(api_key=api_key)
-            logger.info("Using Groq Whisper API (cloud)")
-        else:
-            # Use local Whisper model
-            import whisper
-            logger.info(f"Loading local Whisper model: {self.model_name}")
-            self.model = whisper.load_model(self.model_name)
-            logger.info("Local Whisper model loaded successfully")
+        Args:
+            audio_data: Raw audio bytes (WAV format)
+            language: Language code (en, hi, mr, etc.)
+            prompt: Optional hint for transcription context
+        
+        Returns:
+            Transcribed text or empty string
+        """
+        try:
+            if not audio_data:
+                logger.warning("No audio data provided to STT")
+                return ""
+            
+            # Map language code to Sarvam format
+            sarvam_code = language if "-" in language else f"{language}-IN"
+            
+            logger.debug(f"Transcribing with Sarvam STT (lang={sarvam_code})")
+            
+            text = await self.sarvam_client.speech_to_text(
+                audio_data, 
+                language_code=sarvam_code
+            )
+            
+            if text:
+                logger.info(f"📝 STT: '{text}'")
+            else:
+                logger.debug("No speech detected")
+            
+            return text or ""
+            
+        except Exception as e:
+            logger.error(f"STT error: {e}")
+            return ""
     
     def transcribe_audio(
         self, 
@@ -38,109 +66,36 @@ class STTClient:
         language: str = "en"
     ) -> Optional[str]:
         """
-        Transcribe audio to text
-        
-        Args:
-            audio_data: Raw audio bytes (WAV format for in-memory processing)
-            audio_file: Path to audio file
-            language: Language code (default: en)
-        
-        Returns:
-            Transcribed text or None
+        Synchronous wrapper for backwards compatibility.
+        Note: This uses asyncio.run() - prefer async transcribe() in async contexts.
         """
+        import asyncio
+        
         try:
-            # IN-MEMORY PROCESSING: No temp files if audio_data provided
-            temp_file = None
-            audio_bytes = None
-            
-            if audio_data and not audio_file:
-                # Use audio_data directly (already in WAV format from voice gateway)
-                audio_bytes = audio_data
-            elif audio_file:
-                # Read from file if provided
+            if audio_file and not audio_data:
                 with open(audio_file, "rb") as f:
-                    audio_bytes = f.read()
+                    audio_data = f.read()
             
-            if not audio_bytes and not audio_file:
+            if not audio_data:
                 logger.error("No audio data or file provided")
                 return None
             
-            # Use cloud or local transcription
-            if self.use_cloud:
-                # Groq Whisper API (IN-MEMORY)
-                logger.debug(f"Transcribing with Groq API (in-memory)")
-                # Send audio bytes directly without file
-                # CRITICAL: Detailed prompt helps Whisper with phone call audio quality
-                transcription = self.client.audio.transcriptions.create(
-                    file=("audio.wav", audio_bytes),
-                    model="whisper-large-v3",
-                    language=language,
-                    response_format="text",
-                    prompt="Phone call. Common: what's up, hello, yes, yeah, no, okay, I'm down, sounds good, four to five, bye. Numbers like '4-5' mean small amounts."
-                )
-                text = transcription.strip() if isinstance(transcription, str) else ""
+            # Run async method synchronously
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If already in async context, create a new task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, 
+                        self.transcribe(audio_data, language)
+                    )
+                    return future.result()
             else:
-                # Local Whisper (needs temp file fallback)
-                if audio_bytes and not audio_file:
-                    # Create temp file only for local Whisper
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                        f.write(audio_bytes)
-                        temp_file = f.name
-                    audio_file = temp_file
+                return asyncio.run(self.transcribe(audio_data, language))
                 
-                logger.debug(f"Transcribing with local Whisper: {audio_file}")
-                result = self.model.transcribe(
-                    audio_file,
-                    language=language,
-                    fp16=False
-                )
-                text = result.get("text", "").strip()
-            
-            logger.info(f"Transcription: {text}")
-            
-            # Clean up temp file (only if we created one)
-            if temp_file and os.path.exists(temp_file):
-                os.unlink(temp_file)
-            
-            return text if text else None
-            
         except Exception as e:
-            logger.error(f"STT error: {e}")
-            return None
-    
-    def transcribe_numpy(self, audio_array: np.ndarray, sample_rate: int = 16000) -> Optional[str]:
-        """
-        Transcribe from numpy array (useful for streaming)
-        
-        Args:
-            audio_array: Numpy array of audio samples
-            sample_rate: Sample rate in Hz
-        
-        Returns:
-            Transcribed text
-        """
-        try:
-            # Whisper expects audio at 16kHz
-            if sample_rate != 16000:
-                # Resample if needed (requires librosa or scipy)
-                from scipy import signal
-                num_samples = int(len(audio_array) * 16000 / sample_rate)
-                audio_array = signal.resample(audio_array, num_samples)
-            
-            # Normalize to [-1, 1]
-            if audio_array.dtype == np.int16:
-                audio_array = audio_array.astype(np.float32) / 32768.0
-            
-            result = self.model.transcribe(audio_array, fp16=False)
-            text = result.get("text", "").strip()
-            
-            if text:
-                logger.info(f"Transcription: {text}")
-            
-            return text if text else None
-            
-        except Exception as e:
-            logger.error(f"STT numpy error: {e}")
+            logger.error(f"STT sync error: {e}")
             return None
 
 

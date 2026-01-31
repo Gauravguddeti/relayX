@@ -62,6 +62,7 @@ services:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
     volumes:
       - ./voice_gateway:/app
       - ./shared:/app/shared

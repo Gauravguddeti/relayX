@@ -14,16 +14,14 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
+    port: 3000,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
       '/auth': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/admin': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
@@ -52,10 +50,6 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/stats': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/dashboard': {  // For /dashboard/stats
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

@@ -598,3 +598,47 @@ async def get_login_history(
         "message": "Login history tracking will be implemented with auth system",
         "logs": []
     }
+
+
+@router.get("/system-logs/{service}")
+async def get_system_logs(
+    service: str,
+    lines: int = Query(default=100, le=1000),
+    admin: dict = Depends(verify_admin_token)
+):
+    """Get raw system logs for a service"""
+    import os
+    
+    log_map = {
+        "backend": "logs/backend.log",
+        "voice-gateway": "logs/voice_gateway.log"
+    }
+    
+    if service not in log_map:
+        raise HTTPException(status_code=400, detail="Invalid service name. Options: backend, voice-gateway")
+    
+    log_file = log_map[service]
+    
+    # Check if file exists
+    if not os.path.exists(log_file):
+        # Try looking in parent directory if running from backend folder
+        if os.path.exists(f"../{log_file}"):
+            log_file = f"../{log_file}"
+        elif os.path.exists(f"/app/{log_file}"):
+            log_file = f"/app/{log_file}"
+        else:
+             return {"service": service, "lines": []}
+
+    try:
+        # Read last N lines
+        with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+            # Efficient implementation for large files would be seek-based,
+            # but for <1000 lines, reading all is fine for now
+            all_lines = f.readlines()
+            return {
+                "service": service,
+                "lines": [line.strip() for line in all_lines[-lines:]]
+            }
+    except Exception as e:
+        logger.error(f"Error reading logs for {service}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read logs: {str(e)}")

@@ -11,7 +11,7 @@ from loguru import logger
 from shared.database import SupabaseDB
 from auth import get_current_user_id
 
-router = APIRouter(prefix="/contacts", tags=["contacts"])
+router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
 # ============================================================================
 # Models

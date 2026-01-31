@@ -297,6 +297,9 @@ class CallSession:
     # Frame counts for hysteresis (at 30ms per frame)
     SPEECH_START_FRAMES = 8    # 8 frames × 30ms = 240ms of speech to trigger (was 7)
     SPEECH_END_FRAMES = 10     # 10 frames × 30ms = 300ms of silence to end (was 8)
+
+    # LANGUAGE SELECTION
+    LANGUAGE_SELECTION_ENABLED = True
     
     def __init__(self, call_id: str, agent_id: str, stream_sid: str, voice_settings: dict = None):
         self.call_id = call_id
@@ -378,6 +381,10 @@ class CallSession:
         self._processing_speech = False
         # USER_SPEAKING timeout tracking
         self.user_speaking_start_time = None
+        
+        # Language Selection State
+        self.language_verified = not self.LANGUAGE_SELECTION_ENABLED
+        self.selected_language = "en"
         
         logger.info(f"CallSession created: {call_id} | StreamSID: {stream_sid}")
     
@@ -1363,7 +1370,6 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                 message = await websocket.receive_text()
                 data = json.loads(message)
                 event = data.get("event")
-                
                 if event == "start":
                     # Stream started
                     stream_sid = data["start"]["streamSid"]
@@ -1376,9 +1382,26 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     session = CallSession(call_id, agent["id"], stream_sid, voice_settings)
                     session.agent_config = agent
                     active_sessions[stream_sid] = session
-                    
-                    # Generate opening line with LLM
-                    GREETING_PROMPT = """You are making an OUTBOUND sales call. Generate your opening line.
+
+                    # CHECK FOR LANGUAGE SELECTION
+                    if session.LANGUAGE_SELECTION_ENABLED:
+                        logger.info("🗣️ Requesting language selection")
+                        prompt = "Hello. Do you prefer English, Hindi, or Marathi?"
+                        
+                        # Save to database
+                        await db.add_transcript(call_id=call_id, speaker="agent", text=prompt)
+                        
+                        # Set AI_SPEAKING state and send audio
+                        session.state = ConversationState.AI_SPEAKING
+                        session.interrupted = False
+                        await send_ai_response_with_bargein(websocket, session, prompt, tts, db, call_id)
+                        
+                        session.mark_ai_turn_complete()
+                        session.reset_for_listening()
+                    else:
+                        # STANDARD GREETING FLOW
+                        # Generate opening line with LLM
+                        GREETING_PROMPT = """You are making an OUTBOUND sales call. Generate your opening line.
 
 CRITICAL RULES:
 - Output ONLY the exact words you will speak - nothing else
@@ -1597,23 +1620,20 @@ async def process_user_speech_fast(
             wav.setsampwidth(2)
             wav.setframerate(16000)
             wav.writeframes(audio_pcm_16k)
+            
+        # ==================== STT TRANSCRIPTION ====================
         wav_buffer.seek(0)
-        wav_bytes = wav_buffer.read()
+        audio_bytes = wav_buffer.read()
         
-        # ==================== SPECULATIVE STT ====================
-        # Start STT transcription early while still collecting audio
-        # If more audio comes in, cancel and restart with complete audio
+        # Get current language (default to "en" for initial detection)
+        current_lang = getattr(session, "selected_language", "en")
+        
+        # Single STT call - reuse result for both language detection and main flow
         stt_start = datetime.now()
-        
-        # Check if we should use speculative STT (audio > 1s indicates user is still speaking)
-        use_speculative = audio_duration_ms > 1000 and session.state == "USER_SPEAKING"
-        
-        if use_speculative:
-            # Start transcription of what we have so far (non-blocking)
-            logger.debug(f"⚡ Starting speculative STT with {audio_duration_ms:.0f}ms audio")
-        
-        user_text = stt.transcribe_audio(audio_data=wav_bytes)
+        user_text = await stt.transcribe(audio_bytes, language=current_lang, prompt="English, Hindi, Marathi")
         stt_duration = (datetime.now() - stt_start).total_seconds() * 1000
+        
+        logger.info(f"📝 STT ({stt_duration:.0f}ms): '{user_text}'")
         
         if not user_text or len(user_text.strip()) < 2:
             logger.debug("No meaningful speech detected")
@@ -1621,9 +1641,57 @@ async def process_user_speech_fast(
             session.reset_for_listening()
             return
         
-        logger.info(f"👤 User said: '{user_text}' (STT: {stt_duration:.0f}ms{' [speculative]' if use_speculative else ''})")
-        
-        # ==================== CORRECTION PHRASE HANDLING ====================
+        # ==================== LANGUAGE SELECTION LOGIC ====================
+        if not session.language_verified and session.LANGUAGE_SELECTION_ENABLED:
+            text_lower = user_text.lower()
+            detected_lang = None
+            
+            if "hindi" in text_lower or "हिंदी" in text_lower:
+                detected_lang = "hi"
+                logger.info("✅ Language selected: Hindi")
+            elif "marathi" in text_lower or "मराठी" in text_lower:
+                detected_lang = "mr"
+                logger.info("✅ Language selected: Marathi")
+            elif "english" in text_lower:
+                detected_lang = "en"
+                logger.info("✅ Language selected: English")
+            
+            if detected_lang:
+                session.selected_language = detected_lang
+                session.language_verified = True
+                
+                lang_instruction = {
+                    "hi": "The user speaks HINDI. You MUST reply in HINDI only. Use Devanagari script.",
+                    "mr": "The user speaks MARATHI. You MUST reply in MARATHI only. Use Devanagari script.",
+                    "en": "The user speaks ENGLISH."
+                }
+                
+                # SAFE: Use resolved_system_prompt without mutating original agent_config
+                current_prompt = session.agent_config.get("system_prompt", "")
+                session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: {lang_instruction[detected_lang]}"
+                
+                # Generate the greeting now
+                greeting_prompt = f"User has just selected {detected_lang}. Generate a short, polite opening line in {detected_lang}."
+                messages = [{"role": "user", "content": greeting_prompt}]
+                response_text = await llm.generate_response(messages=messages, system_prompt=lang_instruction[detected_lang], max_tokens=60)
+                
+                # Send text -> TTS -> Audio
+                session.state = ConversationState.AI_SPEAKING
+                await send_ai_response_with_bargein(websocket, session, response_text, tts, db, session.call_id)
+                session.mark_ai_turn_complete()
+                session.reset_for_listening()
+                return
+            else:
+                # Clarify language
+                clarify_text = "Please say English, Hindi, or Marathi."
+                session.state = ConversationState.AI_SPEAKING
+                await send_ai_response_with_bargein(websocket, session, clarify_text, tts, db, session.call_id)
+                session.mark_ai_turn_complete()
+                session.reset_for_listening()
+                return
+
+        # ==================== INTENT CLASSIFICATION ====================
+
         # Detect "No, I said X" or "I said X" patterns and extract the real intent
         import re
         correction_match = re.match(r"^(?:no,?\s*)?i\s+said\s+['\"]?(.+?)['\"]?\.?$", user_text.lower().strip(), re.IGNORECASE)
@@ -1752,7 +1820,8 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
    - First get DAY → Then get TIME → Then get EMAIL
    - Never skip steps!
 """
-            base_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("system_prompt", "You are a helpful assistant.")
+            # Use session's resolved_system_prompt if set (for language selection), otherwise fallback to agent_config
+            base_prompt = getattr(session, "resolved_system_prompt", None) or session.agent_config.get("system_prompt", "You are a helpful assistant.")
             
             # Add last AI response context to prevent repetition
             repetition_guard = ""
@@ -1844,7 +1913,9 @@ async def send_ai_response_with_bargein(
     try:
         # Generate speech
         tts_start = datetime.now()
-        sentence_chunks = tts.generate_speech_streaming(text)
+        # Pass selected language for Sarvam support
+        lang = getattr(session, "selected_language", "en")
+        sentence_chunks = await tts.generate_speech_streaming(text, language=lang)
         tts_gen_time = (datetime.now() - tts_start).total_seconds() * 1000
         logger.info(f"⚡ TTS generated in {tts_gen_time:.0f}ms")
         
