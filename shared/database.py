@@ -19,6 +19,7 @@ class SupabaseDB:
         if not self.url or not self.key:
             raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
         
+        # Create client with default settings (no HTTP/2 to avoid SSL issues)
         self.client: Client = create_client(self.url, self.key)
         logger.info(f"Supabase client initialized for {self.url}")
     
@@ -510,6 +511,78 @@ class SupabaseDB:
             raise
 
 
+    async def get_usage_stats(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get aggregated usage statistics for a user (calls count, total duration).
+        """
+        try:
+            # We can't do complex aggregation easily with the standard Supabase client 
+            # without writing a stored procedure or pulling all data.
+            # For MVP, we'll pull recent calls and aggregate in Python or use 'count' query.
+            
+            # Get total calls count
+            count_result = self.client.table("calls")\
+                .select("id", count="exact")\
+                .eq("user_id", user_id)\
+                .execute()
+            
+            total_calls = count_result.count if count_result.count is not None else 0
+            
+            # To get duration, we might need to fetch fields. 
+            # If dataset is huge, this is inefficient, but fine for < 10k calls.
+            # Optimally: Create a DB function `get_user_usage(user_uuid)`
+            
+            # Fetch 'duration' column for all calls (limit to last 1000 for safety if needed)
+            duration_result = self.client.table("calls")\
+                .select("duration")\
+                .eq("user_id", user_id)\
+                .not_.is_("duration", "null")\
+                .execute()
+                
+            total_seconds = sum(row.get("duration", 0) for row in duration_result.data)
+            
+            return {
+                "total_calls": total_calls,
+                "total_minutes": round(total_seconds / 60, 1),
+                "period": "all_time" # MVP: All time usage
+            }
+        except Exception as e:
+            logger.error(f"Error fetching usage stats: {e}")
+            # Return empty stats on error
+            return {"total_calls": 0, "total_minutes": 0, "period": "error"}
+
+    async def get_usage_stats(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get aggregated usage statistics for a user (calls count, total duration).
+        """
+        try:
+            # Get total calls count
+            count_result = self.client.table("calls")\
+                .select("id", count="exact")\
+                .eq("user_id", user_id)\
+                .execute()
+            
+            total_calls = count_result.count if count_result.count is not None else 0
+            
+            # Fetch 'duration' column for all calls (limit to last 1000 for safety)
+            duration_result = self.client.table("calls")\
+                .select("duration")\
+                .eq("user_id", user_id)\
+                .not_.is_("duration", "null")\
+                .limit(1000)\
+                .execute()
+                
+            total_seconds = sum(row.get("duration", 0) for row in duration_result.data)
+            
+            return {
+                "total_calls": total_calls,
+                "total_minutes": round(total_seconds / 60, 1),
+                "period": "all_time"
+            }
+        except Exception as e:
+            logger.error(f"Error fetching usage stats: {e}")
+            return {"total_calls": 0, "total_minutes": 0, "period": "error"}
+
 db = None
 
 def get_db() -> SupabaseDB:
@@ -518,3 +591,4 @@ def get_db() -> SupabaseDB:
     if db is None:
         db = SupabaseDB()
     return db
+

@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
 import Calls from './pages/Calls';
 import CallDetails from './pages/CallDetails';
 import CampaignDetail from './pages/CampaignDetail';
@@ -13,6 +14,7 @@ import AgentSettings from './pages/AgentSettings';
 import KnowledgeBase from './pages/KnowledgeBase';
 import TestBot from './pages/TestBot';
 import CalIntegration from './pages/CalIntegration';
+import Billing from './pages/Billing';
 
 function App() {
   return (
@@ -26,6 +28,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/analytics"
+            element={
+              <ProtectedRoute>
+                <Analytics />
               </ProtectedRoute>
             }
           />
@@ -98,6 +108,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <CalIntegration />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/billing"
+            element={
+              <ProtectedRoute>
+                <Billing />
               </ProtectedRoute>
             }
           />

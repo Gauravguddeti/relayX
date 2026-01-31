@@ -1,12 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RelayX Admin Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Ubuntu:wght@400;700&display=swap"
+        rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -37,24 +40,34 @@
             color: #FAFAFA;
             font-family: 'Ubuntu', sans-serif;
         }
-        h1, h2, h3, h4, h5, h6 {
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
             font-family: 'Space Grotesk', sans-serif;
         }
+
         .client-card {
             transition: all 0.2s;
             background: #1E1E1E;
             border-color: #2A2A2A;
         }
+
         .client-card:hover {
             transform: translateY(-2px);
             border-color: #DAED6E;
         }
+
         .client-card.selected {
             border-color: #DAED6E;
             box-shadow: 0 0 0 3px rgba(218, 237, 110, 0.2);
         }
     </style>
 </head>
+
 <body>
     <!-- Header -->
     <nav class="bg-secondary border-b-2 border-primary shadow-lg">
@@ -65,13 +78,16 @@
                     <p class="text-sm text-text">Admin Dashboard • <span id="adminUsername">Admin</span></p>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button onclick="refreshData()" class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
+                    <button onclick="refreshData()"
+                        class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
                         🔄 Refresh
                     </button>
-                    <button onclick="viewAnalytics()" class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
+                    <button onclick="viewAnalytics()"
+                        class="px-4 py-2 bg-bg-lighter hover:bg-primary hover:text-secondary rounded-lg transition font-bold">
                         📊 Analytics
                     </button>
-                    <button onclick="logout()" class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
+                    <button onclick="logout()"
+                        class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
                         🚪 Logout
                     </button>
                 </div>
@@ -105,13 +121,15 @@
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-title font-bold text-primary">👥 Clients</h2>
                 <div class="flex items-center space-x-3">
-                    <input type="text" id="searchClients" placeholder="Search clients..." class="px-4 py-2 bg-bg-darker border-2 border-bg-darker text-text rounded-lg focus:border-primary focus:outline-none">
-                    <button onclick="selectAllClients()" class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
+                    <input type="text" id="searchClients" placeholder="Search clients..."
+                        class="px-4 py-2 bg-bg-darker border-2 border-bg-darker text-text rounded-lg focus:border-primary focus:outline-none">
+                    <button onclick="selectAllClients()"
+                        class="px-4 py-2 bg-primary text-secondary hover:opacity-80 rounded-lg transition font-bold">
                         View All Agents
                     </button>
                 </div>
             </div>
-            
+
             <!-- Client Cards Grid -->
             <div id="clientCards" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 <div class="text-center text-text py-12 col-span-full">Loading clients...</div>
@@ -125,11 +143,12 @@
                     <h2 class="text-2xl font-bold text-text" id="selectedClientName">-</h2>
                     <p class="text-text" id="selectedClientInfo">-</p>
                 </div>
-                <button onclick="closeClientDetail()" class="px-4 py-2 bg-bg-darker hover:bg-primary hover:text-secondary rounded-lg transition text-text font-bold">
+                <button onclick="closeClientDetail()"
+                    class="px-4 py-2 bg-bg-darker hover:bg-primary hover:text-secondary rounded-lg transition text-text font-bold">
                     ✕ Close
                 </button>
             </div>
-            
+
             <!-- Client Stats -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div class="bg-primary rounded-lg p-4">
@@ -153,13 +172,16 @@
             <!-- Tabs -->
             <div class="border-b-2 border-bg-lighter mb-6">
                 <div class="flex space-x-6">
-                    <button onclick="showTab('agents')" class="tab-button px-4 py-2 border-b-2 border-primary text-primary font-bold">
+                    <button onclick="showTab('agents')"
+                        class="tab-button px-4 py-2 border-b-2 border-primary text-primary font-bold">
                         Agents
                     </button>
-                    <button onclick="showTab('calls')" class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
+                    <button onclick="showTab('calls')"
+                        class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
                         Recent Calls
                     </button>
-                    <button onclick="showTab('audit')" class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
+                    <button onclick="showTab('audit')"
+                        class="tab-button px-4 py-2 border-b-2 border-transparent text-text hover:text-primary font-bold">
                         Audit Trail
                     </button>
                 </div>
@@ -199,18 +221,21 @@
                     <p class="text-sm text-text">Real-time system activity</p>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <button onclick="toggleBulkOperations()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
+                    <button onclick="toggleBulkOperations()"
+                        class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
                         🗑️ Bulk Operations
                     </button>
-                    <button onclick="exportSystemData()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
+                    <button onclick="exportSystemData()"
+                        class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
                         📥 Export Data
                     </button>
-                    <button onclick="refreshSystemLogs()" class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
+                    <button onclick="refreshSystemLogs()"
+                        class="px-4 py-2 bg-primary 100 text-secondary 700 rounded-lg hover:bg-primary 200 transition">
                         🔄 Refresh
                     </button>
                 </div>
             </div>
-            
+
             <!-- Bulk Operations Panel -->
             <div id="bulkOpsPanel" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 hidden">
                 <h3 class="font-semibold text-yellow-800 mb-3">⚠️ Bulk Operations</h3>
@@ -225,7 +250,8 @@
                         </select>
                     </div>
                     <div class="flex items-end">
-                        <button onclick="bulkDeleteCalls()" class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                        <button onclick="bulkDeleteCalls()"
+                            class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
                             Delete Old Calls
                         </button>
                     </div>
@@ -243,14 +269,16 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-4">
-                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium" id="backendStatus">
+                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium"
+                            id="backendStatus">
                             <span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span>
                             Online
                         </div>
                         <span class="text-xs text-text" id="backendTimestamp">--</span>
                     </div>
                 </div>
-                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto" id="backendLogs">
+                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto"
+                    id="backendLogs">
                     <div class="text-text">Loading backend logs...</div>
                 </div>
             </div>
@@ -266,14 +294,16 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-4">
-                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium" id="voiceStatus">
+                        <div class="flex items-center gap-2 px-3 py-1 bg-primary 100 text-secondary 800 rounded-full text-sm font-medium"
+                            id="voiceStatus">
                             <span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span>
                             Online
                         </div>
                         <span class="text-xs text-text" id="voiceTimestamp">--</span>
                     </div>
                 </div>
-                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto" id="voiceLogs">
+                <div class="bg-secondary rounded-lg p-4 font-mono text-sm text-primary max-h-64 overflow-y-auto"
+                    id="voiceLogs">
                     <div class="text-text">Loading voice gateway logs...</div>
                 </div>
             </div>
@@ -306,7 +336,9 @@
                             </tr>
                         </thead>
                         <tbody id="systemCallsTable" class="bg-bg-lighter divide-y divide-gray-200">
-                            <tr><td colspan="6" class="px-4 py-8 text-center text-text">Loading system calls...</td></tr>
+                            <tr>
+                                <td colspan="6" class="px-4 py-8 text-center text-text">Loading system calls...</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -336,13 +368,13 @@
                     }
                 });
                 const data = await response.json();
-                
+
                 if (!data.success) {
                     localStorage.removeItem('admin_token');
                     window.location.href = '/static/admin-login.html';
                     return false;
                 }
-                
+
                 document.getElementById('adminUsername').textContent = data.username;
                 return true;
             } catch (error) {
@@ -363,7 +395,7 @@
             } catch (error) {
                 console.error('Logout error:', error);
             }
-            
+
             localStorage.removeItem('admin_token');
             window.location.href = '/static/admin-login.html';
         }
@@ -378,9 +410,11 @@
 
         async function loadAnalytics() {
             try {
-                const response = await fetch('/admin/analytics');
+                const response = await fetch('/admin/analytics', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const data = await response.json();
-                
+
                 document.getElementById('totalClients').textContent = data.total_clients;
                 document.getElementById('activeClients').textContent = data.active_clients;
                 document.getElementById('callsToday').textContent = data.calls_today;
@@ -392,9 +426,11 @@
 
         async function loadClients() {
             try {
-                const response = await fetch('/admin/clients');
+                const response = await fetch('/admin/clients', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 allClients = await response.json();
-                
+
                 displayClients(allClients);
             } catch (error) {
                 console.error('Error loading clients:', error);
@@ -445,19 +481,19 @@
 
         async function selectClient(clientId) {
             selectedClientId = clientId;
-            
+
             // Update client cards visual selection
             document.querySelectorAll('.client-card').forEach(card => {
                 card.classList.remove('selected');
             });
             event.target.closest('.client-card').classList.add('selected');
-            
+
             // Load client details
             await loadClientDetail(clientId);
-            
+
             // Show detail panel
             document.getElementById('clientDetailPanel').classList.remove('hidden');
-            
+
             // Filter agents
             loadAgents(clientId);
         }
@@ -474,17 +510,19 @@
 
         async function loadClientDetail(clientId) {
             try {
-                const response = await fetch(`/admin/clients/${clientId}`);
+                const response = await fetch(`/admin/clients/${clientId}`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const client = await response.json();
-                
+
                 document.getElementById('selectedClientName').textContent = client.name || 'Unknown';
                 document.getElementById('selectedClientInfo').textContent = `${client.company || 'No company'} • ${client.email}`;
-                
+
                 document.getElementById('clientAgentCount').textContent = client.stats.total_agents;
                 document.getElementById('clientTotalCalls').textContent = client.stats.total_calls;
                 document.getElementById('clientSuccessRate').textContent = client.stats.success_rate.toFixed(1) + '%';
                 document.getElementById('clientAvgDuration').textContent = client.stats.avg_call_duration + 's';
-                
+
                 // Display agents
                 document.getElementById('clientAgents').innerHTML = client.agents.map(agent => `
                     <div class="bg-bg-darker rounded-lg p-4 mb-3">
@@ -499,7 +537,7 @@
                         </div>
                     </div>
                 `).join('') || '<p class="text-text">No agents configured</p>';
-                
+
                 // Display recent calls
                 document.getElementById('clientCalls').innerHTML = client.recent_calls.slice(0, 10).map(call => `
                     <div class="border-b border-bg-lighter py-3">
@@ -514,7 +552,7 @@
                         </div>
                     </div>
                 `).join('') || '<p class="text-text">No calls yet</p>';
-                
+
                 // Display audit logs
                 document.getElementById('clientAudit').innerHTML = client.audit_logs.map(log => `
                     <div class="border-b border-bg-lighter py-3">
@@ -527,7 +565,7 @@
                         </div>
                     </div>
                 `).join('') || '<p class="text-text">No activity</p>';
-                
+
             } catch (error) {
                 console.error('Error loading client detail:', error);
             }
@@ -535,13 +573,15 @@
 
         async function loadAgents(clientId = null) {
             try {
-                const url = clientId ? `/agents?user_id=${clientId}` : '/agents';
-                const response = await fetch(url);
+                const url = clientId ? `/admin/agents?user_id=${clientId}` : '/admin/agents';
+                const response = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 allAgents = await response.json();
-                
+
                 const title = clientId ? `${allClients.find(c => c.id === clientId)?.name || 'Client'}'s Agents` : 'All Agents';
                 document.getElementById('agentsSectionTitle').textContent = title;
-                
+
                 displayAgents(allAgents);
             } catch (error) {
                 console.error('Error loading agents:', error);
@@ -591,7 +631,7 @@
 
         function showTab(tabName) {
             currentTab = tabName;
-            
+
             // Update tab buttons
             document.querySelectorAll('.tab-button').forEach(btn => {
                 btn.classList.remove('border-primary', 'text-primary');
@@ -599,7 +639,7 @@
             });
             event.target.classList.remove('border-transparent', 'text-text');
             event.target.classList.add('border-primary', 'text-primary');
-            
+
             // Show/hide tab content
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.add('hidden');
@@ -622,10 +662,11 @@
             if (!confirm(`Are you sure you want to delete all calls older than ${days} days? This action cannot be undone.`)) {
                 return;
             }
-            
+
             try {
                 const response = await fetch(`/admin/bulk/delete-old-calls?days_old=${days}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
                 });
                 const result = await response.json();
                 alert(`Successfully deleted ${result.deleted_count} calls`);
@@ -638,9 +679,11 @@
         async function exportData() {
             try {
                 const clientId = selectedClientId || '';
-                const response = await fetch(`/admin/bulk/export?client_id=${clientId}&data_type=all`);
+                const response = await fetch(`/admin/bulk/export?client_id=${clientId}&data_type=all`, {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const data = await response.json();
-                
+
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -659,12 +702,14 @@
         // System Logs Functions
         async function fetchBackendLogs() {
             try {
-                const response = await fetch('/api/logs/backend');
+                const response = await fetch('/api/logs/backend', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const data = await response.json();
-                
+
                 const logsDiv = document.getElementById('backendLogs');
                 logsDiv.innerHTML = formatLogs(data.logs);
-                
+
                 document.getElementById('backendTimestamp').textContent = formatTimestamp(data.timestamp);
                 const statusEl = document.getElementById('backendStatus');
                 statusEl.innerHTML = '<span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span> Online';
@@ -676,15 +721,17 @@
                 statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium';
             }
         }
-        
+
         async function fetchVoiceLogs() {
             try {
-                const response = await fetch('/api/logs/voice-gateway');
+                const response = await fetch('/api/logs/voice-gateway', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const data = await response.json();
-                
+
                 const logsDiv = document.getElementById('voiceLogs');
                 logsDiv.innerHTML = formatLogs(data.logs);
-                
+
                 document.getElementById('voiceTimestamp').textContent = formatTimestamp(data.timestamp);
                 const statusEl = document.getElementById('voiceStatus');
                 statusEl.innerHTML = '<span class="w-2 h-2 bg-primary 600 rounded-full animate-pulse"></span> Online';
@@ -696,20 +743,22 @@
                 statusEl.className = 'flex items-center gap-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium';
             }
         }
-        
+
         async function fetchSystemCalls() {
             try {
-                const response = await fetch('/calls?limit=20');
+                const response = await fetch('/admin/calls?limit=20', {
+                    headers: { 'Authorization': `Bearer ${adminToken}` }
+                });
                 const calls = await response.json();
-                
+
                 const tbody = document.getElementById('systemCallsTable');
-                
+
                 if (calls.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-text">No system calls yet</td></tr>';
                     document.getElementById('systemCallCount').textContent = '0 calls';
                     return;
                 }
-                
+
                 tbody.innerHTML = calls.map(call => {
                     const time = new Date(call.created_at).toLocaleString();
                     const statusColors = {
@@ -719,7 +768,7 @@
                     };
                     const statusClass = statusColors[call.status] || 'bg-bg-darker text-text font-bold';
                     const duration = call.duration ? `${Math.floor(call.duration / 60)}:${String(call.duration % 60).padStart(2, '0')}` : '--';
-                    
+
                     return `
                         <tr class="hover:bg-bg-darker">
                             <td class="px-4 py-3 text-sm text-text">${time}</td>
@@ -731,11 +780,11 @@
                         </tr>
                     `;
                 }).join('');
-                
+
                 document.getElementById('systemCallCount').textContent = `${calls.length} calls`;
                 document.getElementById('systemCallsTimestamp').textContent = formatTimestamp(new Date().toISOString());
             } catch (error) {
-                document.getElementById('systemCallsTable').innerHTML = 
+                document.getElementById('systemCallsTable').innerHTML =
                     `<tr><td colspan="6" class="px-4 py-8 text-center text-red-600">Error: ${error.message}</td></tr>`;
             }
         }
@@ -788,7 +837,7 @@
         // Search functionality
         document.getElementById('searchClients').addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
-            const filtered = allClients.filter(client => 
+            const filtered = allClients.filter(client =>
                 (client.name || '').toLowerCase().includes(searchTerm) ||
                 (client.email || '').toLowerCase().includes(searchTerm) ||
                 (client.company || '').toLowerCase().includes(searchTerm)
@@ -856,7 +905,7 @@
                     user_id: selectedClientId,
                     is_active: true
                 };
-                
+
                 console.log('Sending payload:', payload);
 
                 const response = await fetch('/agents', {
@@ -884,31 +933,34 @@
     </script>
 
     <!-- Agent Creation Modal -->
-    <div id="agentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onclick="if(event.target===this) closeAgentModal()">
+    <div id="agentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        onclick="if(event.target===this) closeAgentModal()">
         <div class="bg-bg-lighter rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-xl">
                 <div class="flex items-center justify-between">
                     <h2 class="text-2xl font-bold">🤖 Create New Agent</h2>
-                    <button onclick="closeAgentModal()" class="text-white hover:text-gray-200 text-2xl font-bold">&times;</button>
+                    <button onclick="closeAgentModal()"
+                        class="text-white hover:text-gray-200 text-2xl font-bold">&times;</button>
                 </div>
             </div>
             <div class="p-6 space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Agent Name</label>
-                    <input type="text" id="agentName" placeholder="e.g., Sarah, Customer Support Bot" 
-                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <input type="text" id="agentName" placeholder="e.g., Sarah, Customer Support Bot"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">System Prompt</label>
                     <textarea id="agentPrompt" rows="10" placeholder="You are a helpful AI assistant..."
-                              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"></textarea>
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"></textarea>
                     <p class="text-xs text-text mt-1">Define the agent's personality, role, and instructions</p>
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">LLM Model</label>
-                    <select id="agentModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <select id="agentModel"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="llama-3.1-8b-instant">Llama 3.1 8B (Fast)</option>
                         <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Smart)</option>
                     </select>
@@ -918,25 +970,27 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Temperature (0-1)</label>
                         <input type="number" id="agentTemp" min="0" max="1" step="0.1" value="0.7"
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Max Tokens</label>
                         <input type="number" id="agentTokens" min="50" max="500" step="10" value="150"
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                     </div>
                 </div>
             </div>
             <div class="bg-bg-darker px-6 py-4 rounded-b-xl flex justify-end space-x-3">
-                <button onclick="closeAgentModal()" class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition">
+                <button onclick="closeAgentModal()"
+                    class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition">
                     Cancel
                 </button>
-                <button id="createAgentBtn" onclick="createAgent()" class="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition">
+                <button id="createAgentBtn" onclick="createAgent()"
+                    class="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition">
                     Create Agent
                 </button>
             </div>
         </div>
     </div>
 </body>
-</html>
 
+</html>

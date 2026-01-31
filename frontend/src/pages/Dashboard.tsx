@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Phone, TrendingUp, Clock, CheckCircle, XCircle, PhoneCall, Plus, Users } from 'lucide-react';
+import { Phone, TrendingUp, CheckCircle, PhoneCall, Plus, Users } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import StatCard from '../components/dashboard/StatCard';
 import RecentCallsList from '../components/dashboard/RecentCallsList';
@@ -9,6 +9,7 @@ import NewCallModal from '../components/dashboard/NewCallModal';
 import CampaignsList from '../components/dashboard/CampaignsList';
 import CampaignCreateModal from '../components/CampaignCreateModal';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config';
 
 interface DashboardStats {
   totalCalls: number;
@@ -53,18 +54,18 @@ export default function Dashboard() {
     try {
       setLoading(true);
       // Use the optimized dashboard stats endpoint
-      const response = await fetch('/dashboard/stats', {
+      const response = await fetch(`${API_BASE_URL}/dashboard/stats`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('relayx_token')}`
         }
       });
-      
+
       if (!response.ok) {
         console.error('Failed to fetch dashboard stats:', response.status);
         setLoading(false);
         return;
       }
-      
+
       const data = await response.json();
       setStats(data);
     } catch (error) {
@@ -105,11 +106,10 @@ export default function Dashboard() {
           <nav className="-mb-px flex space-x-8 px-6">
             <button
               onClick={() => setActiveTab('calls')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'calls'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-              }`}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'calls'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }`}
             >
               <div className="flex items-center space-x-2">
                 <Phone className="w-5 h-5" />
@@ -118,11 +118,10 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => setActiveTab('campaigns')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'campaigns'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-              }`}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'campaigns'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }`}
             >
               <div className="flex items-center space-x-2">
                 <Users className="w-5 h-5" />
@@ -182,7 +181,7 @@ export default function Dashboard() {
             <div className="lg:col-span-1 space-y-6">
               {/* Upcoming Events */}
               <UpcomingEvents />
-              
+
               {/* Cal.com Calendar Widget */}
               <CalendarWidget />
             </div>

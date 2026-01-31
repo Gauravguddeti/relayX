@@ -36,7 +36,7 @@ export default function TestBot() {
   useEffect(() => {
     fetchAgent();
     loadContacts();
-    
+
     // Check for pre-filled phone from URL params
     const params = new URLSearchParams(window.location.search);
     const phone = params.get('phone');
@@ -71,7 +71,7 @@ export default function TestBot() {
   function formatPhoneNumber(value: string) {
     // Remove all non-digits
     const digits = value.replace(/\D/g, '');
-    
+
     // Format as (XXX) XXX-XXXX
     if (digits.length <= 3) {
       return digits;
@@ -103,7 +103,7 @@ export default function TestBot() {
     const updated = [...contacts, newContact];
     setContacts(updated);
     localStorage.setItem('relayx_contacts', JSON.stringify(updated));
-    
+
     setContactName('');
     setShowSaveContact(false);
     setResult({ type: 'success', message: 'Contact saved successfully!' });
@@ -141,15 +141,15 @@ export default function TestBot() {
       }
 
       const data = await response.json();
-      
+
       setResult({
         type: 'success',
         message: `Test call initiated! Your phone will ring shortly. Call ID: ${data.call_id}`,
       });
-      
+
       // Show save contact option
       setShowSaveContact(true);
-      
+
       // Reset form after 5 seconds
       setTimeout(() => {
         setPhoneNumber('');
@@ -180,8 +180,8 @@ export default function TestBot() {
 
         {/* Info Banner */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-text">
+          <AlertCircle className="w-5 h-5 text-blue-700 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-blue-900">
             <p className="font-medium">Safe Testing Environment</p>
             <ul className="mt-2 space-y-1 list-disc list-inside">
               <li>Test calls are clearly marked in your call history</li>
@@ -192,7 +192,7 @@ export default function TestBot() {
         </div>
 
         {/* Test Form */}
-        <div className="bg-white rounded-lg shadow p-8">
+        <div className="bg-white rounded-lg shadow p-8 text-gray-900">
           <div className="space-y-6">
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -209,7 +209,7 @@ export default function TestBot() {
                   </button>
                 )}
               </div>
-              
+
               {showContacts && contacts.length > 0 && (
                 <div className="mb-4 max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
                   {contacts.map((contact) => (
@@ -222,15 +222,15 @@ export default function TestBot() {
                       className="w-full text-left px-4 py-3 hover:bg-blue-50 border-b border-gray-100 last:border-b-0 transition-colors"
                     >
                       <div className="font-medium text-black">{contact.name}</div>
-                      <div className="text-sm text-text-secondary">{contact.phone}</div>
+                      <div className="text-sm text-gray-600">{contact.phone}</div>
                       {contact.company && (
-                        <div className="text-xs text-text-secondary">{contact.company}</div>
+                        <div className="text-xs text-gray-500">{contact.company}</div>
                       )}
                     </button>
                   ))}
                 </div>
               )}
-              
+
               <div className="flex gap-2">
                 <select
                   value={countryCode}
@@ -257,7 +257,7 @@ export default function TestBot() {
                   />
                 </div>
               </div>
-              <p className="text-sm text-text-secondary mt-2">
+              <p className="text-sm text-gray-700 mt-2">
                 Enter the phone number where you want to receive the test call
               </p>
 
@@ -285,9 +285,8 @@ export default function TestBot() {
             </div>
 
             {result && (
-              <div className={`rounded-lg p-4 flex items-start space-x-3 ${
-                result.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-              }`}>
+              <div className={`rounded-lg p-4 flex items-start space-x-3 ${result.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+                }`}>
                 {result.type === 'success' ? (
                   <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                 ) : (
@@ -320,7 +319,7 @@ export default function TestBot() {
         {/* What to Expect */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold text-black mb-4">What to Expect</h2>
-          <ol className="space-y-3 text-sm text-text-secondary">
+          <ol className="space-y-3 text-sm text-gray-800">
             <li className="flex items-start">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-secondary font-medium flex items-center justify-center mr-3">
                 1

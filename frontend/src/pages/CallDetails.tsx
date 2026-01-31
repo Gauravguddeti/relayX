@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Clock, TrendingUp, MessageSquare, Play, Volume2 } from 'lucide-react';
+import { ArrowLeft, Phone, Clock, TrendingUp, MessageSquare } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 
 interface CallData {
@@ -84,19 +84,18 @@ export default function CallDetails() {
 
   function getOutcomeBadge(outcome: string) {
     if (!outcome) return null;
-    
-    const isPositive = outcome.toLowerCase().includes('interested') || 
-                      outcome.toLowerCase().includes('success') ||
-                      outcome.toLowerCase().includes('positive');
+
+    const isPositive = outcome.toLowerCase().includes('interested') ||
+      outcome.toLowerCase().includes('success') ||
+      outcome.toLowerCase().includes('positive');
     const isNegative = outcome.toLowerCase().includes('not interested') ||
-                      outcome.toLowerCase().includes('declined');
+      outcome.toLowerCase().includes('declined');
 
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-        isPositive ? 'bg-green-100 text-green-800' :
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${isPositive ? 'bg-green-100 text-green-800' :
         isNegative ? 'bg-red-100 text-red-800' :
-        'bg-gray-100 text-gray-800'
-      }`}>
+          'bg-gray-100 text-gray-800'
+        }`}>
         {outcome}
       </span>
     );
@@ -142,8 +141,8 @@ export default function CallDetails() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Call Details</h1>
-            <p className="text-gray-600 mt-1">{call.to_number}</p>
+            <h1 className="text-3xl font-bold text-text">Call Details</h1>
+            <p className="text-gray-400 mt-1">{call.to_number}</p>
           </div>
         </div>
 
@@ -187,7 +186,7 @@ export default function CallDetails() {
         {analysis && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Call Summary</h2>
-            
+
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-medium text-gray-600 mb-2">Outcome</h3>
@@ -234,7 +233,7 @@ export default function CallDetails() {
         {/* Transcript */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Conversation Transcript</h2>
-          
+
           {transcripts.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No transcript available</p>
           ) : (
@@ -245,11 +244,10 @@ export default function CallDetails() {
                   className={`flex ${transcript.speaker === 'agent' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[70%] rounded-lg px-4 py-3 ${
-                      transcript.speaker === 'agent'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
-                    }`}
+                    className={`max-w-[70%] rounded-lg px-4 py-3 ${transcript.speaker === 'agent'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-900'
+                      }`}
                   >
                     <div className="flex items-center space-x-2 mb-1">
                       <span className="text-xs font-medium opacity-75">

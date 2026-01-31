@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { API_BASE_URL } from '../config';
 
 interface User {
   id: string;
@@ -25,14 +26,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if user is logged in (from localStorage)
     const savedUser = localStorage.getItem('relayx_user');
     const token = localStorage.getItem('relayx_token');
-    
+
     if (savedUser && token) {
       try {
         const parsedUser = JSON.parse(savedUser);
         // Optimistically set user first for better UX
         setUser(parsedUser);
         setLoading(false);
-        
+
         // Verify token in background - don't logout on failure (might be network issue)
         verifyToken(token).then(valid => {
           if (!valid) {
@@ -56,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function verifyToken(token: string): Promise<boolean> {
     try {
-      const response = await fetch('/auth/verify-token', {
+      const response = await fetch(`${API_BASE_URL}/auth/verify-token`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -85,20 +86,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json();
-      
+
       if (data.access_token && data.user) {
         const userData = {
           id: data.user.id,
           email: data.user.email,
           name: data.user.name || email.split('@')[0]
         };
-        
+
         setUser(userData);
         localStorage.setItem('relayx_user', JSON.stringify(userData));
         localStorage.setItem('relayx_token', data.access_token);
         return true;
       }
-      
+
       return false;
     } catch (error) {
       console.error('Login error:', error);
@@ -113,11 +114,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      login, 
-      logout, 
-      isAuthenticated: !!user, 
+    <AuthContext.Provider value={{
+      user,
+      login,
+      logout,
+      isAuthenticated: !!user,
       loading,
       userId: user?.id || null
     }}>

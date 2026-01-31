@@ -1,16 +1,17 @@
 import sys
 import os
 from dotenv import load_dotenv
-from passlib.context import CryptContext
+import bcrypt
+# from passlib.context import CryptContext
 
 load_dotenv()
 sys.path.append(os.path.dirname(__file__))
 from shared.database import SupabaseDB
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def main():
     db = SupabaseDB()

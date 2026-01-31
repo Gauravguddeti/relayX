@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, UserPlus, Trash2, Phone, Download, Search, AlertCircle } from 'lucide-react';
+import { Upload, UserPlus, Trash2, Search, AlertCircle } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -88,7 +88,7 @@ export default function Contacts() {
 
     try {
       const fullPhone = countryCode + newContact.phone;
-      
+
       const response = await fetch('/api/contacts', {
         method: 'POST',
         headers: {
@@ -192,7 +192,7 @@ export default function Contacts() {
 
   async function handleBulkDelete() {
     setShowDeleteConfirm(false);
-    
+
     for (const contactId of selectedContacts) {
       try {
         await fetch(`/api/contacts/${contactId}`, {
@@ -205,7 +205,7 @@ export default function Contacts() {
         console.error('Failed to delete contact:', contactId, error);
       }
     }
-    
+
     setSelectedContacts([]);
     fetchContacts();
   }
@@ -231,7 +231,7 @@ export default function Contacts() {
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">Contacts</h1>
+            <h1 className="text-4xl font-bold text-text">Contacts</h1>
             <p className="text-gray-400 mt-2">Manage your contact list</p>
           </div>
           <div className="flex space-x-3">

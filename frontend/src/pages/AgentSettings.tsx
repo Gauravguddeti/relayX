@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Plus, Edit, Trash2, Bot, MessageSquare, Building2, Sparkles, Check, ChevronRight, LayoutGrid, List as ListIcon } from 'lucide-react';
+import { Save, Plus, Edit, Trash2, Bot, LayoutGrid, List as ListIcon } from 'lucide-react';
 import DashboardLayout from '../components/dashboard/DashboardLayout';
 import { useAuth } from '../contexts/AuthContext';
 import { AgentKanbanBoard, type AgentColumn } from '../components/ui/AgentKanbanBoard';
@@ -11,7 +11,19 @@ interface Agent {
   resolved_system_prompt: string;
   temperature: number;
   is_active: boolean;
+  voice_settings?: {
+    vad_mode?: number;
+    silence_threshold_ms?: number;
+    min_audio_duration_ms?: number;
+    min_speech_energy?: number;
+    echo_ignore_ms?: number;
+    speech_start_ms?: number;
+    speech_end_ms?: number;
+    tts_voice?: string;
+    preset?: string;
+  };
   user_id?: string;
+  created_at?: string;
 }
 
 const BUSINESS_TYPES = [
@@ -26,6 +38,80 @@ const BUSINESS_TYPES = [
   { value: 'finance', label: 'Finance / Banking', icon: '🏦' },
   { value: 'other', label: 'Other', icon: '📦' },
 ];
+
+// Voice settings presets for different call scenarios
+const VOICE_PRESETS = {
+  balanced: {
+    label: 'Balanced (Recommended)',
+    description: 'Best for most scenarios with good call quality',
+    icon: '⚖️',
+    settings: {
+      vad_mode: 2,
+      silence_threshold_ms: 600,
+      min_audio_duration_ms: 400,
+      min_speech_energy: 30,
+      echo_ignore_ms: 400,
+      speech_start_ms: 200,
+      speech_end_ms: 240,
+    }
+  },
+  fast: {
+    label: 'Fast & Responsive',
+    description: 'Quick responses, ideal for clean connections',
+    icon: '⚡',
+    settings: {
+      vad_mode: 1,
+      silence_threshold_ms: 500,
+      min_audio_duration_ms: 300,
+      min_speech_energy: 25,
+      echo_ignore_ms: 300,
+      speech_start_ms: 150,
+      speech_end_ms: 200,
+    }
+  },
+  conservative: {
+    label: 'Conservative',
+    description: 'Fewer interruptions, better for noisy environments',
+    icon: '🛡️',
+    settings: {
+      vad_mode: 3,
+      silence_threshold_ms: 800,
+      min_audio_duration_ms: 500,
+      min_speech_energy: 40,
+      echo_ignore_ms: 500,
+      speech_start_ms: 250,
+      speech_end_ms: 300,
+    }
+  },
+  mobile: {
+    label: 'Mobile Optimized',
+    description: 'Tuned for cellular connections with variable quality',
+    icon: '📱',
+    settings: {
+      vad_mode: 2,
+      silence_threshold_ms: 700,
+      min_audio_duration_ms: 450,
+      min_speech_energy: 35,
+      echo_ignore_ms: 450,
+      speech_start_ms: 220,
+      speech_end_ms: 260,
+    }
+  },
+  custom: {
+    label: 'Custom',
+    description: 'Manually configure all voice settings',
+    icon: '🎛️',
+    settings: {
+      vad_mode: 2,
+      silence_threshold_ms: 600,
+      min_audio_duration_ms: 400,
+      min_speech_energy: 30,
+      echo_ignore_ms: 400,
+      speech_start_ms: 200,
+      speech_end_ms: 240,
+    }
+  }
+};
 
 // Business type-specific system prompt templates
 const SYSTEM_PROMPT_TEMPLATES: Record<string, string> = {
@@ -297,6 +383,17 @@ export default function AgentSettings() {
   const [businessDescription, setBusinessDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
 
+  // Voice settings state
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [voiceSettingsPreset, setVoiceSettingsPreset] = useState('balanced');
+  const [vadMode, setVadMode] = useState(2);
+  const [silenceThreshold, setSilenceThreshold] = useState(600);
+  const [minAudioDuration, setMinAudioDuration] = useState(400);
+  const [minSpeechEnergy, setMinSpeechEnergy] = useState(30);
+  const [echoIgnore, setEchoIgnore] = useState(400);
+  const [speechStartMs, setSpeechStartMs] = useState(200);
+  const [speechEndMs, setSpeechEndMs] = useState(240);
+
   // Helper to extract clean description from full prompt
   const getAgentDescription = (prompt: string | undefined): string => {
     if (!prompt) return "No description available";
@@ -325,19 +422,25 @@ export default function AgentSettings() {
     }
   }, [userId]);
 
-  // Auto-populate system prompt when business type changes
+  // Auto-populate system prompt when business type changes (only for new agents, not when editing)
   useEffect(() => {
-    if (businessType && SYSTEM_PROMPT_TEMPLATES[businessType]) {
-      console.log('Setting system prompt for business type:', businessType);
-      setSystemPrompt(SYSTEM_PROMPT_TEMPLATES[businessType]);
+    // Only auto-populate if:
+    // 1. We're in create mode
+    // 2. System prompt is empty or matches the default template
+    // 3. Business type changed
+    if (view === 'create' && businessType && SYSTEM_PROMPT_TEMPLATES[businessType]) {
+      const isEmptyOrDefault = !systemPrompt || systemPrompt.length < 100 || 
+                               Object.values(SYSTEM_PROMPT_TEMPLATES).includes(systemPrompt);
+      if (isEmptyOrDefault) {
+        setSystemPrompt(SYSTEM_PROMPT_TEMPLATES[businessType]);
+      }
     }
-  }, [businessType]);
+  }, [businessType, view]);
 
   async function fetchAgents() {
     try {
       const response = await fetch(`/agents?user_id=${userId}`);
       if (!response.ok) {
-        console.error('Failed to fetch agents:', response.status);
         setLoading(false);
         return;
       }
@@ -347,7 +450,6 @@ export default function AgentSettings() {
       setAgents(userAgents);
       setLoading(false);
     } catch (error) {
-      console.error('Failed to fetch agents:', error);
       setAgents([]);
       setLoading(false);
     }
@@ -356,9 +458,28 @@ export default function AgentSettings() {
   function handleEditAgent(agent: Agent) {
     setSelectedAgent(agent);
     setAgentName(agent.name);
+    setView('edit'); // Set view FIRST before parsing
     parsePromptFields(agent.prompt_text || agent.resolved_system_prompt || '');
-    setView('edit');
+    
+    // Load voice settings if they exist
+    if (agent.voice_settings && Object.keys(agent.voice_settings).length > 0) {
+      const vs = agent.voice_settings;
+      setVadMode(vs.vad_mode ?? 2);
+      setSilenceThreshold(vs.silence_threshold_ms ?? 600);
+      setMinAudioDuration(vs.min_audio_duration_ms ?? 400);
+      setMinSpeechEnergy(vs.min_speech_energy ?? 30);
+      setEchoIgnore(vs.echo_ignore_ms ?? 400);
+      setSpeechStartMs(vs.speech_start_ms ?? 200);
+      setSpeechEndMs(vs.speech_end_ms ?? 240);
+      setVoiceSettingsPreset(vs.preset ?? 'balanced');
+    } else {
+      // Use default balanced preset
+      applyVoicePreset('balanced');
+    }
+    
     setMessage(null);
+    // Scroll to top when switching views
+    window.scrollTo(0, 0);
   }
 
   function handleNewAgent() {
@@ -367,25 +488,31 @@ export default function AgentSettings() {
     setGreeting('Hi! Thanks for calling. How can I help you today?');
     setBusinessDescription('');
     setBusinessType('services'); // This will trigger useEffect to set system prompt
+    applyVoicePreset('balanced'); // Set default voice settings
     setView('create');
     setMessage(null);
+    // Scroll to top when switching views
+    window.scrollTo(0, 0);
   }
 
   function parsePromptFields(prompt: string) {
+    // For editing: Always show the FULL prompt in the System Prompt field
+    // Don't try to parse it - let user see exactly what's in the database
+    setSystemPrompt(prompt);
+    
+    // Still try to extract other fields for convenience
     const lines = prompt.split('\n');
     let foundGreeting = '';
     let foundDescription = '';
-    let foundBusinessType = 'services';
+    let foundBusinessType: string = 'other';
 
-    // Extract greeting - look for the line after GREETING & INTRODUCTION
+    // Extract greeting if it exists
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes('GREETING & INTRODUCTION:')) {
-        // Get the next non-empty line
         let j = i + 1;
         while (j < lines.length && !lines[j].trim()) j++;
         if (j < lines.length) {
           foundGreeting = lines[j].trim();
-          // Remove the "Then introduce yourself" part if present
           if (foundGreeting.includes('Then introduce yourself')) {
             foundGreeting = foundGreeting.split('Then introduce yourself')[0].trim();
           }
@@ -394,34 +521,59 @@ export default function AgentSettings() {
       }
     }
 
-    // Extract business description
+    // Extract business description if it exists
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes('What we do:')) {
-        foundDescription = lines[i + 1]?.trim() || '';
+        const sameLine = lines[i].split('What we do:')[1]?.trim();
+        if (sameLine) {
+          foundDescription = sameLine;
+        } else {
+          foundDescription = lines[i + 1]?.trim() || '';
+        }
         break;
       }
     }
 
-    // Extract business type from Industry line
+    // Extract business type if it exists
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes('Industry:')) {
         const industry = lines[i].split(':')[1]?.trim().toLowerCase();
         const matched = BUSINESS_TYPES.find(t =>
           t.label.toLowerCase().includes(industry) || industry.includes(t.value)
         );
-        if (matched) foundBusinessType = matched.value;
+        if (matched) {
+          foundBusinessType = matched.value;
+          setBusinessType(matched.value); // Apply the found business type
+        }
         break;
       }
     }
 
-    // Set values
+    // Apply parsed values if found
     if (foundGreeting) setGreeting(foundGreeting);
     if (foundDescription) setBusinessDescription(foundDescription);
-    
-    // Set business type - this will trigger useEffect to auto-populate system prompt template
-    // The useEffect will load the correct template for this business type
-    setBusinessType(foundBusinessType);
+
+    console.log('Parsed values:');
+    console.log('- greeting:', foundGreeting);
+    console.log('- description:', foundDescription);
+    console.log('- business type:', foundBusinessType);
   }
+
+  // Helper function to apply voice preset
+  function applyVoicePreset(presetName: string) {
+    const preset = VOICE_PRESETS[presetName as keyof typeof VOICE_PRESETS];
+    if (preset) {
+      setVadMode(preset.settings.vad_mode);
+      setSilenceThreshold(preset.settings.silence_threshold_ms);
+      setMinAudioDuration(preset.settings.min_audio_duration_ms);
+      setMinSpeechEnergy(preset.settings.min_speech_energy);
+      setEchoIgnore(preset.settings.echo_ignore_ms);
+      setSpeechStartMs(preset.settings.speech_start_ms);
+      setSpeechEndMs(preset.settings.speech_end_ms);
+      setVoiceSettingsPreset(presetName);
+    }
+  }
+    
 
   async function handleSaveAgent() {
     if (!userId) {
@@ -434,6 +586,18 @@ export default function AgentSettings() {
 
     try {
       const prompt = buildSystemPrompt();
+      
+      // Build voice settings object
+      const voice_settings = {
+        vad_mode: vadMode,
+        silence_threshold_ms: silenceThreshold,
+        min_audio_duration_ms: minAudioDuration,
+        min_speech_energy: minSpeechEnergy,
+        echo_ignore_ms: echoIgnore,
+        speech_start_ms: speechStartMs,
+        speech_end_ms: speechEndMs,
+        preset: voiceSettingsPreset,
+      };
 
       if (view === 'create') {
         // Create new agent
@@ -443,6 +607,7 @@ export default function AgentSettings() {
           body: JSON.stringify({
             name: agentName,
             prompt_text: prompt,
+            voice_settings,
             is_active: true,
             user_id: userId,
           }),
@@ -462,6 +627,7 @@ export default function AgentSettings() {
           body: JSON.stringify({
             name: agentName,
             prompt_text: prompt,
+            voice_settings,
             user_id: userId,
           }),
         });
@@ -481,7 +647,6 @@ export default function AgentSettings() {
         setMessage(null);
       }, 1500);
     } catch (error: any) {
-      console.error('Save error:', error);
       setMessage({ type: 'error', text: error.message || 'Failed to save agent. Please try again.' });
     } finally {
       setSaving(false);
@@ -504,7 +669,6 @@ export default function AgentSettings() {
       await fetchAgents();
       setTimeout(() => setMessage(null), 3000);
     } catch (error: any) {
-      console.error('Delete error:', error);
       setMessage({ type: 'error', text: error.message || 'Failed to delete agent.' });
     }
   }
@@ -536,7 +700,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
     return prompt;
   }
 
-  async function handleAgentMove(agentId: string, fromColumnId: string, toColumnId: string) {
+  async function handleAgentMove(agentId: string, _fromColumnId: string, toColumnId: string) {
     const newIsActive = toColumnId === 'active';
     
     try {
@@ -570,7 +734,6 @@ Remember: Your goal is to help customers and represent ${companyName} profession
         type: 'error',
         text: 'Failed to update agent status'
       });
-      // Refresh to get correct state
       fetchAgents();
     }
   }
@@ -585,7 +748,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
           id: a.id,
           name: a.name,
           prompt_text: a.prompt_text,
-          user_id: a.user_id,
+          user_id: a.user_id || '',
           created_at: a.created_at
         }))
       },
@@ -597,7 +760,7 @@ Remember: Your goal is to help customers and represent ${companyName} profession
           id: a.id,
           name: a.name,
           prompt_text: a.prompt_text,
-          user_id: a.user_id,
+          user_id: a.user_id || '',
           created_at: a.created_at
         }))
       }
@@ -772,8 +935,11 @@ Remember: Your goal is to help customers and represent ${companyName} profession
             <p className="text-text-secondary mt-1">Configure your AI voice assistant</p>
           </div>
           <button
-            onClick={() => setView('list')}
-            className="px-4 py-2 text-gray-600 hover:text-gray-900"
+            onClick={() => {
+              setView('list');
+              window.scrollTo(0, 0);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg border border-gray-300 transition-colors font-medium"
           >
             ← Back to Agents
           </button>
@@ -879,6 +1045,240 @@ Remember: Your goal is to help customers and represent ${companyName} profession
             <p className="text-sm text-gray-500 mt-1">
               This prompt is automatically filled when you select a business type above. You can edit it to customize your agent's behavior.
             </p>
+          </div>
+
+          {/* Voice Settings Section */}
+          <div className="border-t pt-6">
+            <button
+              type="button"
+              onClick={() => setShowVoiceSettings(!showVoiceSettings)}
+              className="flex items-center justify-between w-full mb-4"
+            >
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">🎙️ Voice & Audio Settings</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Configure voice detection, silence thresholds, and audio processing
+                </p>
+              </div>
+              <span className="text-2xl text-gray-400">
+                {showVoiceSettings ? '▼' : '▶'}
+              </span>
+            </button>
+
+            {showVoiceSettings && (
+              <div className="space-y-6 bg-gray-50 p-6 rounded-lg">
+                {/* Preset Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Voice Settings Preset
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {Object.entries(VOICE_PRESETS).map(([key, preset]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => applyVoicePreset(key)}
+                        className={`p-4 rounded-lg border-2 text-left transition-all ${
+                          voiceSettingsPreset === key
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-300 bg-white hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 mb-2">
+                          <span className="text-2xl">{preset.icon}</span>
+                          <span className="font-semibold text-gray-900">{preset.label}</span>
+                        </div>
+                        <p className="text-xs text-gray-600">{preset.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Advanced Settings (only show for custom preset) */}
+                {voiceSettingsPreset === 'custom' && (
+                  <div className="space-y-4 pt-4 border-t border-gray-300">
+                    <h4 className="font-medium text-gray-900">Advanced Configuration</h4>
+                    
+                    {/* VAD Mode */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        VAD Mode (Voice Activity Detection): {vadMode}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="3"
+                        step="1"
+                        value={vadMode}
+                        onChange={(e) => setVadMode(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0 - Least Aggressive</span>
+                        <span>3 - Most Aggressive</span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Higher values filter more noise but may cut off speech
+                      </p>
+                    </div>
+
+                    {/* Silence Threshold */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Silence Threshold: {silenceThreshold}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="300"
+                        max="1200"
+                        step="50"
+                        value={silenceThreshold}
+                        onChange={(e) => setSilenceThreshold(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        How long to wait after user stops speaking before processing
+                      </p>
+                    </div>
+
+                    {/* Min Audio Duration */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Minimum Audio Duration: {minAudioDuration}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="200"
+                        max="800"
+                        step="50"
+                        value={minAudioDuration}
+                        onChange={(e) => setMinAudioDuration(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        Minimum speech duration to process (filters out noise)
+                      </p>
+                    </div>
+
+                    {/* Min Speech Energy */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Minimum Speech Energy: {minSpeechEnergy}
+                      </label>
+                      <input
+                        type="range"
+                        min="10"
+                        max="80"
+                        step="5"
+                        value={minSpeechEnergy}
+                        onChange={(e) => setMinSpeechEnergy(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        Energy threshold to distinguish speech from silence
+                      </p>
+                    </div>
+
+                    {/* Echo Ignore Window */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Echo Ignore Window: {echoIgnore}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="200"
+                        max="800"
+                        step="50"
+                        value={echoIgnore}
+                        onChange={(e) => setEchoIgnore(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        Ignore incoming audio for this duration after AI finishes speaking
+                      </p>
+                    </div>
+
+                    {/* Speech Start Threshold */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Speech Start Threshold: {speechStartMs}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="100"
+                        max="500"
+                        step="50"
+                        value={speechStartMs}
+                        onChange={(e) => setSpeechStartMs(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        Duration of continuous speech needed to trigger detection
+                      </p>
+                    </div>
+
+                    {/* Speech End Threshold */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Speech End Threshold: {speechEndMs}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="100"
+                        max="500"
+                        step="20"
+                        value={speechEndMs}
+                        onChange={(e) => setSpeechEndMs(Number(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-600 mt-1">
+                        Duration of silence needed to mark speech as ended
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current Settings Summary (for non-custom presets) */}
+                {voiceSettingsPreset !== 'custom' && (
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <h4 className="font-medium text-gray-900 mb-3">Current Settings</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-gray-600">VAD Mode:</span>
+                        <span className="ml-2 font-medium">{vadMode}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Silence Threshold:</span>
+                        <span className="ml-2 font-medium">{silenceThreshold}ms</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Min Audio Duration:</span>
+                        <span className="ml-2 font-medium">{minAudioDuration}ms</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Min Speech Energy:</span>
+                        <span className="ml-2 font-medium">{minSpeechEnergy}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Echo Ignore:</span>
+                        <span className="ml-2 font-medium">{echoIgnore}ms</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Speech Start:</span>
+                        <span className="ml-2 font-medium">{speechStartMs}ms</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => applyVoicePreset('custom')}
+                      className="mt-3 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition-colors font-medium text-sm"
+                    >
+                      Customize these settings →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Save Button */}

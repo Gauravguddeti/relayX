@@ -26,20 +26,14 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GROQ_MODEL=llama-3.3-70b-versatile
-      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
-      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USE_CLOUD_STT=${USE_CLOUD_STT}
-      - STT_PROVIDER=${STT_PROVIDER}
-      - USE_CLOUD_TTS=${USE_CLOUD_TTS}
-      - USE_CLOUD_LLM=${USE_CLOUD_LLM}
+      - REDIS_URL=redis://redis:6379
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
       - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
       - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
       - LANDING_PAGE_AGENT_ID=${LANDING_PAGE_AGENT_ID}
       - CAL_API_KEY=${CAL_API_KEY}
-      - FISH_AUDIO_API_KEY=${FISH_AUDIO_API_KEY}
     volumes:
       - ./backend:/app
       - ./shared:/app/shared
@@ -63,13 +57,8 @@ services:
       - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
       - BACKEND_URL=http://backend:8000
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
-      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USE_CLOUD_STT=${USE_CLOUD_STT}
-      - STT_PROVIDER=${STT_PROVIDER}
-      - USE_CLOUD_TTS=${USE_CLOUD_TTS}
-      - USE_CLOUD_LLM=${USE_CLOUD_LLM}
+      - REDIS_URL=redis://redis:6379
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
@@ -83,12 +72,24 @@ services:
     networks:
       - relayx-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: relayx-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
   ngrok:
     image: ngrok/ngrok:latest
     container_name: relayx-ngrok
     command: http voice-gateway:8001 --log stdout
     ports:
-      - "4040:4040"  # ngrok web interface
+      - "4040:4040" # ngrok web interface
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
     depends_on:
@@ -96,6 +97,10 @@ services:
     restart: unless-stopped
     networks:
       - relayx-network
+
+volumes:
+  redis-data:
+
 
 networks:
   relayx-network:
